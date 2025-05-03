@@ -1,6 +1,6 @@
-﻿using System.Text;
+﻿using System.Diagnostics;
+using System.Text;
 using Whisper.net;
-using NAudio.Wave; // Required for MP3 to WAV conversion
 
 // --- Configuration ---
 
@@ -13,7 +13,7 @@ const string InputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/Whisper
 const string OutputDirectory = InputDirectory;
 
 // The name of the Whisper model file.
-// Make sure this file is in the application's output directory (bin/Debug/net9.0 etc.)
+// Make sure this file is in the application's output directory's 'Models' subfolder.
 const string ModelFileName = "ggml-large-v3.bin";
 
 // --- Main Transcription Logic ---
@@ -21,13 +21,16 @@ const string ModelFileName = "ggml-large-v3.bin";
 Console.WriteLine("Starting Whisper Speech to Text Transcription.");
 
 // Find the model file path relative to the application's execution directory
-string modelPath = Path.Combine(AppContext.BaseDirectory, "Models", ModelFileName);
+// Account for the 'Models' subfolder created during the build process
+string modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models"); // Get path to the 'Models' folder
+string modelPath = Path.Combine(modelDirectory, ModelFileName); // Combine 'Models' path with the filename
 
 if (!File.Exists(modelPath))
 {
     Console.ForegroundColor = ConsoleColor.Red;
+    // Corrected error message to reflect the actual path being checked
     Console.WriteLine($"Error: Model file not found at {modelPath}");
-    Console.WriteLine($"Please ensure '{ModelFileName}' is in the same directory as the executable.");
+    Console.WriteLine($"Please ensure '{Path.Combine("Models", ModelFileName)}' is in the application's output directory (e.g., bin/Debug/net9.0/Models/).");
     Console.ResetColor();
     return; // Exit the application
 }
@@ -66,7 +69,7 @@ using var factory = WhisperFactory.FromPath(modelPath);
 // Configure the processor - we'll assume English for now for better performance
 // You can remove .WithLanguage("en") to enable language detection, but it's slower.
 // .WithLanguage("auto") also enables detection.
-using var processor = factory.CreateBuilder() // Changed from CreateProcessorBuilder()
+using var processor = factory.CreateBuilder()
     .WithLanguage("en") // Specify English for faster processing if known
     .Build();
 
@@ -87,14 +90,20 @@ foreach (string mp3FilePath in mp3Files)
 
     try
     {
-        Console.WriteLine("Converting MP3 to WAV...");
-        ConvertMp3ToWav(mp3FilePath, tempWavFilePath);
+        Console.WriteLine("Converting MP3 to WAV using ffmpeg...");
+        
+        ConvertAudioToWavUsingFfmpeg(mp3FilePath, tempWavFilePath);
         Console.WriteLine("Conversion complete.");
 
         Console.WriteLine("Starting transcription...");
 
+        if (!File.Exists(tempWavFilePath))
+        {
+             throw new FileNotFoundException($"ffmpeg failed to create the temporary WAV file: {tempWavFilePath}");
+        }
+
         // Read the temporary WAV file
-        using var audioStream = File.OpenRead(tempWavFilePath);
+        await using var audioStream = File.OpenRead(tempWavFilePath);
 
         var transcription = new StringBuilder();
 
@@ -145,14 +154,63 @@ Console.WriteLine("Press Enter to exit.");
 Console.ReadLine();
 
 
-// --- Helper Method for MP3 to WAV Conversion ---
-
-void ConvertMp3ToWav(string mp3Path, string wavPath)
+void ConvertAudioToWavUsingFfmpeg(string inputPath, string wavPath)
 {
-    using var reader = new Mp3FileReader(mp3Path);
-    // Convert to the desired format: 16kHz, 16-bit, mono
-    // Whisper.cpp requires 16kHz, 16-bit, mono PCM
-    var outFormat = new WaveFormat(16000, 16, 1);
-    using var resampler = new WaveFormatConversionStream(outFormat, reader);
-    WaveFileWriter.CreateWaveFile(wavPath, resampler);
+    // ffmpeg command to convert input audio (like MP3) to 16kHz, 16-bit PCM, mono WAV
+    // -y overwrites output file without asking
+    // -i input file path
+    // -acodec pcm_s16le sets the output audio codec to 16-bit signed little-endian PCM
+    // -ar 16000 sets the audio sample rate to 16000 Hz
+    // -ac 1 sets the number of audio channels to 1 (mono)
+    string ffmpegArgs = $"-y -i \"{inputPath}\" -acodec pcm_s16le -ar 16000 -ac 1 \"{wavPath}\"";
+
+    var startInfo = new ProcessStartInfo
+    {
+        FileName = "ffmpeg", // Assumes ffmpeg is in the system's PATH
+        Arguments = ffmpegArgs,
+        UseShellExecute = false,
+        RedirectStandardOutput = true, // Redirect output for potential debugging info
+        RedirectStandardError = true,  // Redirect errors
+        CreateNoWindow = true          // Don't create a visible window (for console app)
+    };
+
+    Console.WriteLine($"Executing: ffmpeg {ffmpegArgs}");
+
+    using var process = new Process { StartInfo = startInfo };
+
+    try
+    {
+        process.Start();
+
+        // Read output/error streams to prevent deadlocks
+        string output = process.StandardOutput.ReadToEnd();
+        string error = process.StandardError.ReadToEnd();
+
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
+        {
+            // If ffmpeg returns a non-zero exit code, it means an error occurred
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("ffmpeg Error Output:");
+            Console.WriteLine(error);
+            Console.ResetColor();
+            throw new Exception($"ffmpeg process failed with exit code {process.ExitCode}. See console output for details.");
+        }
+
+        // Optional
+        Console.WriteLine("ffmpeg Output:");
+        Console.WriteLine(output);
+        Console.WriteLine("ffmpeg Error (info usually):");
+        Console.WriteLine(error);
+    }
+    catch (Exception ex)
+    {
+        // Catch errors e.g. 'ffmpeg not found'
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"Failed to run ffmpeg. Is ffmpeg installed and in the system's PATH?");
+        Console.WriteLine(ex.Message);
+        Console.ResetColor();
+        throw new Exception("FFmpeg execution failed.", ex);
+    }
 }
