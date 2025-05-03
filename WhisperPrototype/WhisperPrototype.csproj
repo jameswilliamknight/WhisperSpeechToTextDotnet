@@ -10,6 +10,18 @@
     <ItemGroup>
       <PackageReference Include="NAudio" Version="2.2.1" />
       <PackageReference Include="Whisper.net" Version="1.8.1" />
+      <PackageReference Include="Whisper.net.Runtime" Version="1.8.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Remove="Models\ggml-large-v3.bin" />
+      <Content Include="Models\ggml-large-v3.bin">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Inputs\2025-05-03_Food-Stock-Take.mp3" />
+      <Content Include="Inputs\2025-05-03_Food-Stock-Take.mp3">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
     </ItemGroup>
 
 </Project>

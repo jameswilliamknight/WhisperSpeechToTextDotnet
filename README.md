@@ -1,6 +1,16 @@
 # Setup Guide
 
-This section shows you how I created this project
+This document shows you how I created this project
+
+## Environment
+
+_Example uses Ubuntu on WSL on Windows 11, but the same will need to be applied to a Raspberry Pi 5 (8GB, 16GB)_
+
+```sh
+sudo apt update
+sudo apt install ffmpeg
+```
+
 
 ## NuGet
 
