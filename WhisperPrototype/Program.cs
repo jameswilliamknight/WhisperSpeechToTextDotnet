@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using Whisper.net;
+using WhisperPrototype;
 
 // --- Configuration ---
 
@@ -10,7 +11,7 @@ const string InputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/Whisper
 
 // The directory where the text output files will be saved.
 // We'll save them in the same directory as the input file for simplicity here.
-const string OutputDirectory = InputDirectory;
+const string OutputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Outputs";
 
 // The name of the Whisper model file.
 // Make sure this file is in the application's output directory's 'Models' subfolder.
@@ -22,8 +23,8 @@ Console.WriteLine("Starting Whisper Speech to Text Transcription.");
 
 // Find the model file path relative to the application's execution directory
 // Account for the 'Models' subfolder created during the build process
-string modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models"); // Get path to the 'Models' folder
-string modelPath = Path.Combine(modelDirectory, ModelFileName); // Combine 'Models' path with the filename
+var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models"); // Get path to the 'Models' folder
+var modelPath = Path.Combine(modelDirectory, ModelFileName); // Combine 'Models' path with the filename
 
 if (!File.Exists(modelPath))
 {
@@ -52,7 +53,7 @@ else
 }
 
 // Get all MP3 files in the input directory
-string[] mp3Files = Directory.GetFiles(InputDirectory, "*.mp3");
+var mp3Files = Directory.GetFiles(InputDirectory, "*.mp3");
 
 if (mp3Files.Length == 0)
 {
@@ -74,11 +75,17 @@ using var processor = factory.CreateBuilder()
     .Build();
 
 // Process each MP3 file
-foreach (string mp3FilePath in mp3Files)
+foreach (var mp3FilePath in mp3Files)
 {
-    string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(mp3FilePath);
-    string outputTxtFilePath = Path.Combine(OutputDirectory, $"{fileNameWithoutExtension}.txt");
-    string tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav"); // Use a temp path for WAV
+    var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(mp3FilePath);
+
+    if (!Directory.Exists(OutputDirectory))
+    {
+        Directory.CreateDirectory(OutputDirectory);
+    }
+    
+    var outputTxtFilePath = Path.Combine(OutputDirectory, $"{fileNameWithoutExtension}.txt");
+    var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav"); // Use a temp path for WAV
 
     Console.WriteLine($"\nProcessing: {mp3FilePath}");
 
@@ -91,8 +98,9 @@ foreach (string mp3FilePath in mp3Files)
     try
     {
         Console.WriteLine("Converting MP3 to WAV using ffmpeg...");
-        
-        ConvertAudioToWavUsingFfmpeg(mp3FilePath, tempWavFilePath);
+
+        IAudioConverter converter = new AudioConverter();
+        converter.ToWav(mp3FilePath, tempWavFilePath);
         Console.WriteLine("Conversion complete.");
 
         Console.WriteLine("Starting transcription...");
@@ -153,64 +161,3 @@ Console.WriteLine("\nAll available MP3 files processed.");
 Console.WriteLine("Press Enter to exit.");
 Console.ReadLine();
 
-
-void ConvertAudioToWavUsingFfmpeg(string inputPath, string wavPath)
-{
-    // ffmpeg command to convert input audio (like MP3) to 16kHz, 16-bit PCM, mono WAV
-    // -y overwrites output file without asking
-    // -i input file path
-    // -acodec pcm_s16le sets the output audio codec to 16-bit signed little-endian PCM
-    // -ar 16000 sets the audio sample rate to 16000 Hz
-    // -ac 1 sets the number of audio channels to 1 (mono)
-    string ffmpegArgs = $"-y -i \"{inputPath}\" -acodec pcm_s16le -ar 16000 -ac 1 \"{wavPath}\"";
-
-    var startInfo = new ProcessStartInfo
-    {
-        FileName = "ffmpeg", // Assumes ffmpeg is in the system's PATH
-        Arguments = ffmpegArgs,
-        UseShellExecute = false,
-        RedirectStandardOutput = true, // Redirect output for potential debugging info
-        RedirectStandardError = true,  // Redirect errors
-        CreateNoWindow = true          // Don't create a visible window (for console app)
-    };
-
-    Console.WriteLine($"Executing: ffmpeg {ffmpegArgs}");
-
-    using var process = new Process { StartInfo = startInfo };
-
-    try
-    {
-        process.Start();
-
-        // Read output/error streams to prevent deadlocks
-        string output = process.StandardOutput.ReadToEnd();
-        string error = process.StandardError.ReadToEnd();
-
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
-        {
-            // If ffmpeg returns a non-zero exit code, it means an error occurred
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("ffmpeg Error Output:");
-            Console.WriteLine(error);
-            Console.ResetColor();
-            throw new Exception($"ffmpeg process failed with exit code {process.ExitCode}. See console output for details.");
-        }
-
-        // Optional
-        Console.WriteLine("ffmpeg Output:");
-        Console.WriteLine(output);
-        Console.WriteLine("ffmpeg Error (info usually):");
-        Console.WriteLine(error);
-    }
-    catch (Exception ex)
-    {
-        // Catch errors e.g. 'ffmpeg not found'
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"Failed to run ffmpeg. Is ffmpeg installed and in the system's PATH?");
-        Console.WriteLine(ex.Message);
-        Console.ResetColor();
-        throw new Exception("FFmpeg execution failed.", ex);
-    }
-}

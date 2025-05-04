@@ -18,8 +18,13 @@
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </Content>
       <None Remove="Inputs\2025-05-03_Food-Stock-Take.mp3" />
-      <Content Include="Inputs\2025-05-03_Food-Stock-Take.mp3">
-        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <None Remove="Inputs\litany-against-fear_laptop-mic.mp3" />
+      <Content Include="Inputs\litany-against-fear_laptop-mic.mp3">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Inputs\litany-against-fear_wireless-mic.mp3" />
+      <Content Include="Inputs\litany-against-fear_wireless-mic.mp3">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
     </ItemGroup>
 
