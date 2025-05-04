@@ -1,163 +1,51 @@
-﻿using System.Diagnostics;
-using System.Text;
-using Whisper.net;
+﻿using Spectre.Console; // Add this using directive
 using WhisperPrototype;
 
-// --- Configuration ---
-
-// The directory where your MP3 files will be placed.
-// This path is relative to the environment where the app runs (WSL or Pi).
-const string InputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Inputs";
-
-// The directory where the text output files will be saved.
-// We'll save them in the same directory as the input file for simplicity here.
-const string OutputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Outputs";
-
-// The name of the Whisper model file.
-// Make sure this file is in the application's output directory's 'Models' subfolder.
-const string ModelFileName = "ggml-large-v3.bin";
-
-// --- Main Transcription Logic ---
+IWorkspace workspace = new Workspace();
 
 Console.WriteLine("Starting Whisper Speech to Text Transcription.");
 
-// Find the model file path relative to the application's execution directory
-// Account for the 'Models' subfolder created during the build process
-var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models"); // Get path to the 'Models' folder
-var modelPath = Path.Combine(modelDirectory, ModelFileName); // Combine 'Models' path with the filename
+string[] mp3Files = workspace.GetMp3Files();
 
-if (!File.Exists(modelPath))
+// Check if any MP3 files were found
+if (mp3Files == null || mp3Files.Length == 0)
 {
-    Console.ForegroundColor = ConsoleColor.Red;
-    // Corrected error message to reflect the actual path being checked
-    Console.WriteLine($"Error: Model file not found at {modelPath}");
-    Console.WriteLine($"Please ensure '{Path.Combine("Models", ModelFileName)}' is in the application's output directory (e.g., bin/Debug/net9.0/Models/).");
-    Console.ResetColor();
-    return; // Exit the application
+    AnsiConsole.MarkupLine("[yellow]No MP3 files found in the workspace.[/]");
+    Console.WriteLine("Press Enter to exit.");
+    Console.ReadLine();
+    return; // Exit if no files
+}
+
+// --- Implementation of the TODO ---
+AnsiConsole.MarkupLine("[cyan]Select the MP3 files you want to process:[/]");
+
+// Create and configure the multi-selection prompt
+var prompt = new MultiSelectionPrompt<string>()
+    .Title("Use [blue]Spacebar[/] to toggle selection, [green]Enter[/] to confirm.")
+    .PageSize(10) // Show 10 items per page
+    .MoreChoicesText("[grey](Move up and down to reveal more files)[/]")
+    .InstructionsText(
+        "[grey](Press [blue]<space>[/] to toggle a file, " +
+        "[green]<enter>[/] to accept)[/]")
+    .AddChoices(mp3Files); // Add the discovered MP3 files as choices
+
+// Show the prompt and wait for the user's selection
+List<string> mp3FilesChosen = await AnsiConsole.PromptAsync(prompt);
+// --- End of Implementation ---
+
+// Check if the user selected any files
+if (mp3FilesChosen == null || mp3FilesChosen.Count == 0)
+{
+    AnsiConsole.MarkupLine("[yellow]No files were selected for processing.[/]");
 }
 else
 {
-    Console.WriteLine($"Found model file: {modelPath}");
+    AnsiConsole.MarkupLine($"\n[green]Processing {mp3FilesChosen.Count} selected file(s)...[/]");
+    // Process only the chosen files
+    // Note: workspace.Process might expect string[], so convert if necessary
+    await workspace.Process(mp3FilesChosen.ToArray());
+    AnsiConsole.MarkupLine("\n[green]Selected MP3 files processed.[/]");
 }
 
-if (!Directory.Exists(InputDirectory))
-{
-    Console.WriteLine($"Creating input directory: {InputDirectory}");
-    Directory.CreateDirectory(InputDirectory);
-    Console.WriteLine("Please place your MP3 files in this directory and run the application again.");
-    return; // Exit if the input directory doesn't exist yet
-}
-else
-{
-    Console.WriteLine($"Looking for MP3 files in: {InputDirectory}");
-}
-
-// Get all MP3 files in the input directory
-var mp3Files = Directory.GetFiles(InputDirectory, "*.mp3");
-
-if (mp3Files.Length == 0)
-{
-    Console.WriteLine($"No MP3 files found in {InputDirectory}.");
-    Console.WriteLine("Please place your MP3 files in this directory and run the application again.");
-    return; // Exit if no MP3 files are found
-}
-
-Console.WriteLine($"Found {mp3Files.Length} MP3 file(s) to process.");
-
-// Create Whisper factory from the model path
-using var factory = WhisperFactory.FromPath(modelPath);
-
-// Configure the processor - we'll assume English for now for better performance
-// You can remove .WithLanguage("en") to enable language detection, but it's slower.
-// .WithLanguage("auto") also enables detection.
-using var processor = factory.CreateBuilder()
-    .WithLanguage("en") // Specify English for faster processing if known
-    .Build();
-
-// Process each MP3 file
-foreach (var mp3FilePath in mp3Files)
-{
-    var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(mp3FilePath);
-
-    if (!Directory.Exists(OutputDirectory))
-    {
-        Directory.CreateDirectory(OutputDirectory);
-    }
-    
-    var outputTxtFilePath = Path.Combine(OutputDirectory, $"{fileNameWithoutExtension}.txt");
-    var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav"); // Use a temp path for WAV
-
-    Console.WriteLine($"\nProcessing: {mp3FilePath}");
-
-    if (File.Exists(outputTxtFilePath))
-    {
-        Console.WriteLine($"Output file already exists: {outputTxtFilePath}. Skipping.");
-        continue; // Skip if already processed
-    }
-
-    try
-    {
-        Console.WriteLine("Converting MP3 to WAV using ffmpeg...");
-
-        IAudioConverter converter = new AudioConverter();
-        converter.ToWav(mp3FilePath, tempWavFilePath);
-        Console.WriteLine("Conversion complete.");
-
-        Console.WriteLine("Starting transcription...");
-
-        if (!File.Exists(tempWavFilePath))
-        {
-             throw new FileNotFoundException($"ffmpeg failed to create the temporary WAV file: {tempWavFilePath}");
-        }
-
-        // Read the temporary WAV file
-        await using var audioStream = File.OpenRead(tempWavFilePath);
-
-        var transcription = new StringBuilder();
-
-        // Process the audio stream
-        await foreach (var segment in processor.ProcessAsync(audioStream))
-        {
-            // segment.Start and segment.End provide timestamps (TimeSpan objects)
-            // segment.Text is the transcribed text for that segment
-            // Console.WriteLine($"[{segment.Start} --> {segment.End}] {segment.Text}");
-            transcription.Append(segment.Text); // Append text from each segment
-        }
-
-        Console.WriteLine("Transcription complete.");
-
-        // Save the transcription to a text file
-        await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
-        Console.WriteLine($"Transcription saved to: {outputTxtFilePath}");
-    }
-    catch (Exception ex)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"An error occurred while processing {mp3FilePath}: {ex.Message}");
-        Console.ResetColor();
-        // You might want more detailed logging here in a real application
-    }
-    finally
-    {
-        // Clean up the temporary WAV file
-        if (File.Exists(tempWavFilePath))
-        {
-            try
-            {
-                File.Delete(tempWavFilePath);
-                // Console.WriteLine($"Cleaned up temporary WAV: {tempWavFilePath}");
-            }
-            catch (Exception cleanEx)
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"Warning: Could not delete temporary WAV file {tempWavFilePath}: {cleanEx.Message}");
-                Console.ResetColor();
-            }
-        }
-    }
-}
-
-Console.WriteLine("\nAll available MP3 files processed.");
 Console.WriteLine("Press Enter to exit.");
 Console.ReadLine();
-

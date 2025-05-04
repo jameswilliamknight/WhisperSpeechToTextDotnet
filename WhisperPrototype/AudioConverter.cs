@@ -50,10 +50,10 @@ public class AudioConverter : IAudioConverter
             }
 
             // Optional
-            Console.WriteLine("ffmpeg Output:");
-            Console.WriteLine(output);
-            Console.WriteLine("ffmpeg Error (info usually):");
-            Console.WriteLine(error);
+            // Console.WriteLine("ffmpeg Output:");
+            // Console.WriteLine(output);
+            // Console.WriteLine("ffmpeg Error (info usually):");
+            // Console.WriteLine(error);
         }
         catch (Exception ex)
         {
