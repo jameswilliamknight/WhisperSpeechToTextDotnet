@@ -16,7 +16,7 @@
     <ItemGroup>
       <None Remove="Models\ggml-large-v3.bin" />
       <Content Include="Models\ggml-large-v3.bin">
-        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
       <None Remove="Inputs\2025-05-03_Food-Stock-Take.mp3" />
       <None Remove="Inputs\litany-against-fear_laptop-mic.mp3" />
@@ -25,6 +25,46 @@
       </Content>
       <None Remove="Inputs\litany-against-fear_wireless-mic.mp3" />
       <Content Include="Inputs\litany-against-fear_wireless-mic.mp3">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-large-v3-turbo.bin" />
+      <Content Include="Models\ggml-large-v3-turbo.bin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-medium.en.bin" />
+      <Content Include="Models\ggml-medium.en.bin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-tiny.en.bin" />
+      <Content Include="Models\ggml-tiny.en.bin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-small.en.bin" />
+      <Content Include="Models\ggml-small.en.bin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-base.en.bin" />
+      <Content Include="Models\ggml-base.en.bin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-small.en-q5_1.bin" />
+      <Content Include="Models\ggml-small.en-q5_1.bin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-medium-q8_0.bin" />
+      <Content Include="Models\ggml-medium-q8_0.bin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-medium.en-q5_0.bin" />
+      <Content Include="Models\ggml-medium.en-q5_0.bin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-small.en-tdrz.bin" />
+      <Content Include="Models\ggml-small.en-tdrz.bin">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <None Remove="Models\ggml-small.bin" />
+      <Content Include="Models\ggml-small.bin">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
     </ItemGroup>

@@ -22,38 +22,68 @@ public class Workspace : IWorkspace
     // We'll save them in the same directory as the input file for simplicity here.
     // TODO: remove specific username 'james'.
     const string OutputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Outputs";
-
-    // The name of the Whisper model file.
-    // Make sure this file is in the application's output directory's 'Models' subfolder.
-    const string ModelFileName = "ggml-large-v3.bin";
-
+    
     /// <summary>
     ///     Set in constructor
     /// </summary>
     private string ModelPath { get; }
+    private string ModelName { get; }
     
     public Workspace()
     {
         Console.WriteLine("Preparing and checking this device before attempting conversion.");
 
-        // Find the model file path relative to the application's execution directory
-        // Account for the 'Models' subfolder created during the build process
         var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models"); // Get path to the 'Models' folder
-        var modelPath = Path.Combine(modelDirectory, ModelFileName); // Combine 'Models' path with the filename
 
-        if (!File.Exists(modelPath))
+        if (!Directory.Exists(modelDirectory))
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] Model directory not found: [yellow]" + modelDirectory + "[/]");
+            throw new DirectoryNotFoundException($"Model directory not found: {modelDirectory}");
+        }
+
+        // Get all files in the model directory that are not hidden (if applicable) and sort them
+        var modelFiles = Directory.GetFiles(modelDirectory)
+                                  .Select(f => new FileInfo(f)) // Use FileInfo to easily check attributes if needed
+                                  .Where(f => (f.Attributes & FileAttributes.Hidden) == 0) // Basic check for hidden files
+                                  .OrderBy(f => f.Name) // Sort alphabetically by filename
+                                  .ToList();
+
+
+        if (modelFiles.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] No model files found in: [yellow]" + modelDirectory + "[/]");
+            throw new FileNotFoundException($"No model files found in {modelDirectory}");
+        }
+
+        // Present the model files to the user using Spectre.Console single choice picker
+        var selectedModelFile = AnsiConsole.Prompt(
+            new SelectionPrompt<FileInfo>()
+                .Title("Please select a [green]model file[/] to use:")
+                .PageSize(10) // Show up to 10 options at a time
+                .MoreChoicesText("[grey](Move up and down to reveal more models)[/]")
+                // Use HighlightStyle to apply markup to the selected choice
+                .HighlightStyle("green") // Highlight the selected choice in green
+                .AddChoices(modelFiles)
+                .UseConverter(f => f.Name) // Display only the filename
+        );
+        
+        ModelPath = selectedModelFile.FullName; // Set modelPath to the full path of the selected file
+        ModelName = selectedModelFile.Name;
+        Console.WriteLine($"Selected model: {ModelPath}");
+
+        if (!File.Exists(ModelPath))
         {
             Console.ForegroundColor = ConsoleColor.Red;
             // Corrected error message to reflect the actual path being checked
-            Console.WriteLine($"Error: Model file not found at {modelPath}");
+            Console.WriteLine($"Error: Model file not found at {ModelPath}");
             Console.WriteLine(
-                $"Please ensure '{Path.Combine("Models", ModelFileName)}' is in the application's output directory (e.g., bin/Debug/net9.0/Models/).");
+                $"Please ensure '{Path.Combine("Models", ModelName)}' is in the application's output directory (e.g., bin/Debug/net9.0/Models/).");
             Console.ResetColor();
             return; // Exit the application
         }
         else
         {
-            Console.WriteLine($"Found model file: {modelPath}");
+            Console.WriteLine($"Found model file: {ModelPath}");
         }
 
         if (!Directory.Exists(InputDirectory))
@@ -67,8 +97,6 @@ public class Workspace : IWorkspace
         {
             Console.WriteLine($"Looking for MP3 files in: {InputDirectory}");
         }
-
-        ModelPath = modelPath;
     }
 
 
@@ -129,7 +157,6 @@ public class Workspace : IWorkspace
         return null; // Return null if parsing fails or process error
     }
 
-
     
     public async Task Process(string[] mp3Files)
     {
@@ -139,7 +166,7 @@ public class Workspace : IWorkspace
         // Configure the processor - we'll assume English for now for better performance
         // You can remove .WithLanguage("en") to enable language detection, but it's slower.
         // .WithLanguage("auto") also enables detection.
-        using var processor = factory.CreateBuilder()
+        await using var processor = factory.CreateBuilder()
             .WithLanguage("en") // Specify English for faster processing if known
             .Build();
 
@@ -153,15 +180,28 @@ public class Workspace : IWorkspace
                 Directory.CreateDirectory(OutputDirectory);
             }
             
-            var outputTxtFilePath = Path.Combine(OutputDirectory, $"{fileNameWithoutExtension}.txt");
+            var outputTxtFilePath = Path.Combine(OutputDirectory, $"{fileNameWithoutExtension}_{ModelName}.txt");
             var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav"); // Use a temp path for WAV
 
             Console.WriteLine($"\nProcessing: {mp3FilePath}");
 
             if (File.Exists(outputTxtFilePath))
             {
-                Console.WriteLine($"Output file already exists: {outputTxtFilePath}. Skipping.");
-                continue; // Skip if already processed
+                Console.WriteLine($"Output file already exists: {outputTxtFilePath}.");
+
+                // Ask the user if they want to overwrite the file using Spectre.Console
+                var overwrite = AnsiConsole.Confirm("Do you want to overwrite it?", defaultValue: false);
+
+                if (overwrite)
+                {
+                    Console.WriteLine($"Deleting existing file: {outputTxtFilePath}");
+                    File.Delete(outputTxtFilePath);
+                }
+                else
+                {
+                    Console.WriteLine($"Skipping processing for: {mp3FilePath}");
+                    continue; // Skip if the user doesn't want to overwrite
+                }
             }
 
             try
@@ -231,6 +271,7 @@ public class Workspace : IWorkspace
                 // Save the transcription to a text file
                 await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
                 Console.WriteLine($"Transcription saved to: {outputTxtFilePath}");
+                AnsiConsole.WriteLine(transcription.ToString());
             }
             catch (Exception ex)
             {
