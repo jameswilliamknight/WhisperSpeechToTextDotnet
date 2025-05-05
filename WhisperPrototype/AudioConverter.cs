@@ -4,7 +4,6 @@ namespace WhisperPrototype;
 
 public class AudioConverter : IAudioConverter
 {
-        
     public void ToWav(string inputPath, string wavPath)
     {
         // ffmpeg command to convert input audio (like MP3) to 16kHz, 16-bit PCM, mono WAV
