@@ -25,9 +25,15 @@ if (string.IsNullOrEmpty(appSettings.InputDirectory) || string.IsNullOrEmpty(app
 // Handle Ctrl+C for graceful exit
 Console.CancelKeyPress += (sender, eventArgs) =>
 {
-    AnsiConsole.MarkupLine("\n[yellow]Exit requested via Ctrl+C. Shutting down gracefully...[/]");
-    eventArgs.Cancel = true; // Prevent immediate termination by the OS
-    exitRequested = true;
+    eventArgs.Cancel = true; // Prevent immediate termination by the OS, allowing us to run our code
+
+    Console.Clear();
+    AnsiConsole.Clear(); // Clear the console screen
+    Thread.Sleep(500);
+
+    AnsiConsole.Reset();
+    AnsiConsole.MarkupLine("[yellow]Ctrl+C detected. Application aborted with exit code 0.[/]");
+    Environment.Exit(0); // Forcefully exit the application
 };
 
 var workspace = new Workspace(appSettings);
@@ -38,7 +44,7 @@ AnsiConsole.MarkupLine("[green]Welcome to Whisper Speech to Text Transcription.[
 while (!exitRequested)
 {
     AnsiConsole.WriteLine(); // Add some spacing
-    var choice = AnsiConsole.Prompt(
+    var choice = await AnsiConsole.PromptAsync(
         new SelectionPrompt<string>()
             .Title("What would you like to do?")
             .PageSize(5)
@@ -51,11 +57,12 @@ while (!exitRequested)
             var mp3Files = workspace.GetMp3Files();
             await menuEngine.SelectFromOptionsAndDelegateProcessingAsync(
                 mp3Files,
-                async (chosenFiles) => await workspace.Process(chosenFiles), 
+                async (chosenFiles) => await workspace.Process(chosenFiles),
                 "MP3");
             break;
-        
+
         case "Exit":
+            AnsiConsole.MarkupLine("[yellow]Exit selected from menu. Shutting down...[/]");
             exitRequested = true;
             break;
     }
