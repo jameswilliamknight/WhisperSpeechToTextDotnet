@@ -2,6 +2,10 @@
 using WhisperPrototype;
 using Microsoft.Extensions.Configuration;
 
+// --- Start of Top-Level Statements --- 
+
+var exitRequested = false;
+
 // Build configuration
 var configuration = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
@@ -15,43 +19,48 @@ configuration.GetSection("AppSettings").Bind(appSettings);
 if (string.IsNullOrEmpty(appSettings.InputDirectory) || string.IsNullOrEmpty(appSettings.OutputDirectory))
 {
     AnsiConsole.MarkupLine("[red]Error: InputDirectory or OutputDirectory not found or empty in appsettings.json.[/]");
-    Console.WriteLine("Press Enter to exit.");
-    Console.ReadLine();
+    AnsiConsole.MarkupLine("Press any key to exit.");
+    Console.ReadKey();
     return;
 }
 
+// Handle Ctrl+C for graceful exit
+Console.CancelKeyPress += (sender, eventArgs) =>
+{
+    AnsiConsole.MarkupLine("\n[yellow]Exit requested via Ctrl+C. Shutting down gracefully...[/]");
+    eventArgs.Cancel = true; // Prevent immediate termination by the OS
+    exitRequested = true;
+};
+
 var workspace = new Workspace(appSettings);
+var menuEngine = new MenuEngine();
 
-Console.WriteLine("Starting Whisper Speech to Text Transcription.");
+AnsiConsole.MarkupLine("[green]Welcome to Whisper Speech to Text Transcription.[/]");
 
-var mp3Files = workspace.GetMp3Files();
-
-// Check if any MP3 files were found
-if (mp3Files is { Length: 0 })
+while (!exitRequested)
 {
-    AnsiConsole.MarkupLine("[yellow]No MP3 files found in the workspace.[/]");
-    Console.WriteLine("Press Enter to exit.");
-    Console.ReadLine();
-    return; // ⚠️ Exit if no files
+    AnsiConsole.WriteLine(); // Add some spacing
+    var choice = AnsiConsole.Prompt(
+        new SelectionPrompt<string>()
+            .Title("What would you like to do?")
+            .PageSize(5)
+            .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
+            .AddChoices(new[] { "Process MP3 files", "Exit" }));
+
+    switch (choice)
+    {
+        case "Process MP3 files":
+            var mp3Files = workspace.GetMp3Files();
+            await menuEngine.SelectFromOptionsAndDelegateProcessingAsync(mp3Files, async (chosenFiles) => await workspace.Process(chosenFiles), "MP3");
+            break;
+        case "Exit":
+            exitRequested = true;
+            break;
+    }
 }
 
-var menu = new MenuEngine(); // might not need state, could go static.
-var mp3FilesChosen = await menu.PromptChooseFiles(mp3Files);
+AnsiConsole.MarkupLine("\n[green]Application exited.[/]");
+AnsiConsole.MarkupLine("Press any key to close the window.");
+Console.ReadKey(); // Keep window open until a key is pressed
 
-// Check if the user selected any files
-if (mp3FilesChosen is { Count: 0 })
-{
-    AnsiConsole.MarkupLine("[yellow]No files were selected for processing.[/]");
-}
-else
-{
-    AnsiConsole.MarkupLine($"\n[green]Processing {mp3FilesChosen.Count} selected file(s)...[/]");
-    
-    // Process only the chosen files
-    await workspace.Process(mp3FilesChosen.ToArray());
-    
-    AnsiConsole.MarkupLine("\n[green]Selected MP3 files processed.[/]");
-}
-
-Console.WriteLine("Press Enter to exit.");
-Console.ReadLine();
+// --- End of Top-Level Statements ---

@@ -162,7 +162,7 @@ public class Workspace : IWorkspace
     }
 
 
-    public async Task Process(string[] mp3Files)
+    public async Task Process(IEnumerable<string> mp3Files)
     {
         // Create Whisper factory from the model path
         using var factory = WhisperFactory.FromPath(ModelPath);
