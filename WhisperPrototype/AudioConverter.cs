@@ -26,7 +26,8 @@ public class AudioConverter : IAudioConverter
 
         Console.WriteLine($"Executing: ffmpeg {ffmpegArgs}");
 
-        using var process = new Process { StartInfo = startInfo };
+        using var process = new Process();
+        process.StartInfo = startInfo;
 
         try
         {
@@ -61,7 +62,7 @@ public class AudioConverter : IAudioConverter
             Console.WriteLine($"Failed to run ffmpeg. Is ffmpeg installed and in the system's PATH?");
             Console.WriteLine(ex.Message);
             Console.ResetColor();
-            throw new Exception("FFmpeg execution failed.", ex);
+            throw new Exception("ffmpeg execution failed.", ex);
         }
     }
 
