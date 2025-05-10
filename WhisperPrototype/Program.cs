@@ -25,14 +25,8 @@ if (string.IsNullOrEmpty(appSettings.InputDirectory) || string.IsNullOrEmpty(app
 // Handle Ctrl+C for graceful exit
 Console.CancelKeyPress += (sender, eventArgs) =>
 {
-    eventArgs.Cancel = true; // Prevent immediate termination by the OS, allowing us to run our code
-
-    Console.Clear();
-    AnsiConsole.Clear(); // Clear the console screen
-    Thread.Sleep(500);
-
-    AnsiConsole.Reset();
-    AnsiConsole.MarkupLine("[yellow]Ctrl+C detected. Application aborted with exit code 0.[/]");
+    eventArgs.Cancel = true;
+    AnsiConsole.MarkupLine("[red]Ctrl+C detected. Application aborted with exit code 0.[/]");
     Environment.Exit(0); // Forcefully exit the application
 };
 
