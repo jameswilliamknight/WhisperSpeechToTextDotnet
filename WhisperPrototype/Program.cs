@@ -1,7 +1,26 @@
 ﻿using Spectre.Console;
 using WhisperPrototype;
+using Microsoft.Extensions.Configuration;
 
-var workspace = new Workspace();
+// Build configuration
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .Build();
+
+// Bind configuration to AppSettings object
+var appSettings = new AppSettings();
+configuration.GetSection("AppSettings").Bind(appSettings);
+
+if (string.IsNullOrEmpty(appSettings.InputDirectory) || string.IsNullOrEmpty(appSettings.OutputDirectory))
+{
+    AnsiConsole.MarkupLine("[red]Error: InputDirectory or OutputDirectory not found or empty in appsettings.json.[/]");
+    Console.WriteLine("Press Enter to exit.");
+    Console.ReadLine();
+    return;
+}
+
+var workspace = new Workspace(appSettings);
 
 Console.WriteLine("Starting Whisper Speech to Text Transcription.");
 

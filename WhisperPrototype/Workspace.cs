@@ -15,22 +15,22 @@ public class Workspace : IWorkspace
 
     // The directory where your MP3 files will be placed.
     // This path is relative to the environment where the app runs (WSL or Pi).
-    // TODO: remove specific username 'james'.
-    const string InputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Inputs";
+    // const string InputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Inputs";
 
     // The directory where the text output files will be saved.
     // We'll save them in the same directory as the input file for simplicity here.
-    // TODO: remove specific username 'james'.
-    const string OutputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Outputs";
-    
+    // const string OutputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Outputs";
+
     /// <summary>
     ///     Set in constructor
     /// </summary>
     private string ModelPath { get; }
     private string ModelName { get; }
-    
-    public Workspace()
+    private AppSettings Config { get; }
+
+    public Workspace(AppSettings appConfig)
     {
+        Config = appConfig;
         Console.WriteLine("Preparing and checking this device before attempting conversion.");
 
         var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models"); // Get path to the 'Models' folder
@@ -66,7 +66,7 @@ public class Workspace : IWorkspace
                 .AddChoices(modelFiles)
                 .UseConverter(f => f.Name) // Display only the filename
         );
-        
+
         ModelPath = selectedModelFile.FullName; // Set modelPath to the full path of the selected file
         ModelName = selectedModelFile.Name;
         Console.WriteLine($"Selected model: {ModelPath}");
@@ -86,16 +86,16 @@ public class Workspace : IWorkspace
             Console.WriteLine($"Found model file: {ModelPath}");
         }
 
-        if (!Directory.Exists(InputDirectory))
+        if (!Directory.Exists(Config.InputDirectory))
         {
-            Console.WriteLine($"Creating input directory: {InputDirectory}");
-            Directory.CreateDirectory(InputDirectory);
+            Console.WriteLine($"Creating input directory: {Config.InputDirectory}");
+            Directory.CreateDirectory(Config.InputDirectory!);
             Console.WriteLine("Please place your MP3 files in this directory and run the application again.");
             return; // Exit if the input directory doesn't exist yet
         }
         else
         {
-            Console.WriteLine($"Looking for MP3 files in: {InputDirectory}");
+            Console.WriteLine($"Looking for MP3 files in: {Config.InputDirectory}");
         }
     }
 
@@ -139,7 +139,11 @@ public class Workspace : IWorkspace
 
             // Directly parse the output string
             if (!string.IsNullOrWhiteSpace(durationStr) &&
-                double.TryParse(durationStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double durationSeconds))
+                double.TryParse(
+                    durationStr,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, 
+                    out var durationSeconds))
             {
                 return TimeSpan.FromSeconds(durationSeconds);
             }
@@ -157,7 +161,7 @@ public class Workspace : IWorkspace
         return null; // Return null if parsing fails or process error
     }
 
-    
+
     public async Task Process(string[] mp3Files)
     {
         // Create Whisper factory from the model path
@@ -175,12 +179,12 @@ public class Workspace : IWorkspace
         {
             var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(mp3FilePath);
 
-            if (!Directory.Exists(OutputDirectory))
+            if (!Directory.Exists(Config.OutputDirectory))
             {
-                Directory.CreateDirectory(OutputDirectory);
+                Directory.CreateDirectory(Config.OutputDirectory!);
             }
-            
-            var outputTxtFilePath = Path.Combine(OutputDirectory, $"{fileNameWithoutExtension}_{ModelName}.txt");
+
+            var outputTxtFilePath = Path.Combine(Config.OutputDirectory!, $"{fileNameWithoutExtension}_{ModelName}.txt");
             var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav"); // Use a temp path for WAV
 
             Console.WriteLine($"\nProcessing: {mp3FilePath}");
@@ -221,7 +225,7 @@ public class Workspace : IWorkspace
 
                 var sw = new Stopwatch();
                 sw.Start();
-                
+
                 // Read the temporary WAV file
                 await using var audioStream = File.OpenRead(tempWavFilePath);
 
@@ -236,14 +240,14 @@ public class Workspace : IWorkspace
                     transcription.Append(segment.Text); // Append text from each segment
                 }
                 sw.Stop();
-                
+
                 var audioDuration = GetAudioDuration(tempWavFilePath);
-                
+
                 Console.WriteLine("Transcription of {0} seconds of audio completed in {1} seconds ({2} ratio).", audioDuration.Value.TotalSeconds, sw.Elapsed.TotalSeconds,
                     (audioDuration.Value.Ticks / sw.Elapsed.Ticks));
 
                 // Calculate ratio using doubles for floating-point division
-                double ratio = sw.Elapsed.TotalSeconds / audioDuration.Value.TotalSeconds;
+                var ratio = sw.Elapsed.TotalSeconds / audioDuration.Value.TotalSeconds;
 
                 // Use string interpolation with format specifiers (F2 = Fixed-point, 2 decimals)
                 Console.WriteLine(
@@ -267,7 +271,7 @@ public class Workspace : IWorkspace
                 AnsiConsole.MarkupLine($"Processing took [yellow]{ratio:F2}[/] times the audio duration {speedComparison}.");
                 // --- End Optional ---
 
-                
+
                 // Save the transcription to a text file
                 await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
                 Console.WriteLine($"Transcription saved to: {outputTxtFilePath}");
@@ -303,17 +307,17 @@ public class Workspace : IWorkspace
 
     public string[] GetMp3Files()
     {
-        var mp3Files = Directory.GetFiles(InputDirectory, "*.mp3");
-        
+        var mp3Files = Directory.GetFiles(Config.InputDirectory!, "*.mp3");
+
         if (mp3Files.Length == 0)
         {
-            Console.WriteLine($"No MP3 files found in {InputDirectory}.");
+            Console.WriteLine($"No MP3 files found in {Config.InputDirectory}.");
             Console.WriteLine("Please place your MP3 files in this directory and run the application again.");
             return [];
         }
-        
+
         Console.WriteLine($"Found {mp3Files.Length} MP3 file(s) to process.");
-        
+
         return mp3Files;
     }
 }
