@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Spectre.Console;
 
 namespace WhisperPrototype;
 
@@ -24,7 +25,7 @@ public class AudioConverter : IAudioConverter
             CreateNoWindow = true          // Don't create a visible window (for console app)
         };
 
-        Console.WriteLine($"Executing: ffmpeg {ffmpegArgs}");
+        AnsiConsole.WriteLine($"Executing: ffmpeg {ffmpegArgs}");
 
         using var process = new Process();
         process.StartInfo = startInfo;
@@ -42,26 +43,22 @@ public class AudioConverter : IAudioConverter
             if (process.ExitCode != 0)
             {
                 // If ffmpeg returns a non-zero exit code, it means an error occurred
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("ffmpeg Error Output:");
-                Console.WriteLine(error);
-                Console.ResetColor();
+                AnsiConsole.MarkupLine("[red]ffmpeg Error Output:[/]");
+                AnsiConsole.MarkupLine($"[red]{error}[/]");
                 throw new Exception($"ffmpeg process failed with exit code {process.ExitCode}. See console output for details.");
             }
 
             // Optional
-            // Console.WriteLine("ffmpeg Output:");
-            // Console.WriteLine(output);
-            // Console.WriteLine("ffmpeg Error (info usually):");
-            // Console.WriteLine(error);
+            // AnsiConsole.WriteLine("ffmpeg Output:");
+            // AnsiConsole.WriteLine(output);
+            // AnsiConsole.WriteLine("ffmpeg Error (info usually):");
+            // AnsiConsole.WriteLine(error);
         }
         catch (Exception ex)
         {
             // Catch errors e.g. 'ffmpeg not found'
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"Failed to run ffmpeg. Is ffmpeg installed and in the system's PATH?");
-            Console.WriteLine(ex.Message);
-            Console.ResetColor();
+            AnsiConsole.MarkupLine($"[red]Failed to run ffmpeg. Is ffmpeg installed and in the system's PATH?[/]");
+            AnsiConsole.MarkupLine($"[red]{ex.Message}[/]");
             throw new Exception("ffmpeg execution failed.", ex);
         }
     }

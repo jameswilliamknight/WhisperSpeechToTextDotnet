@@ -33,7 +33,7 @@ public class Workspace : IWorkspace
     public Workspace(AppSettings appConfig)
     {
         Config = appConfig;
-        Console.WriteLine("Preparing and checking this device before attempting conversion.");
+        AnsiConsole.WriteLine("Preparing and checking this device before attempting conversion.");
 
         var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models");
 
@@ -75,33 +75,30 @@ public class Workspace : IWorkspace
 
         ModelPath = selectedModelFile.FullName;
         ModelName = selectedModelFile.Name;
-        Console.WriteLine($"Selected model: {ModelPath}");
+        AnsiConsole.WriteLine($"Selected model: {ModelPath}");
 
         if (!File.Exists(ModelPath))
         {
-            Console.ForegroundColor = ConsoleColor.Red;
-            // Corrected error message to reflect the actual path being checked
-            Console.WriteLine($"Error: Model file not found at {ModelPath}");
-            Console.WriteLine(
-                $"Please ensure '{Path.Combine("Models", ModelName)}' is in the application's output directory (e.g., bin/Debug/net9.0/Models/).");
-            Console.ResetColor();
+            AnsiConsole.MarkupLine($"[red]Error:[/] Model file not found at {ModelPath}");
+            AnsiConsole.MarkupLine(
+                $"[red]Please ensure '{Path.Combine("Models", ModelName)}' is in the application's output directory (e.g., bin/Debug/net9.0/Models/).[/]");
             return; // Exit the application
         }
         else
         {
-            Console.WriteLine($"Found model file: {ModelPath}");
+            AnsiConsole.WriteLine($"Found model file: {ModelPath}");
         }
 
         if (!Directory.Exists(Config.InputDirectory))
         {
-            Console.WriteLine($"Creating input directory: {Config.InputDirectory}");
+            AnsiConsole.WriteLine($"Creating input directory: {Config.InputDirectory}");
             Directory.CreateDirectory(Config.InputDirectory!);
-            Console.WriteLine("Please place your MP3 files in this directory and run the application again.");
+            AnsiConsole.WriteLine("Please place your MP3 files in this directory and run the application again.");
             return; // Exit if the input directory doesn't exist yet
         }
         else
         {
-            Console.WriteLine($"Looking for MP3 files in: {Config.InputDirectory}");
+            AnsiConsole.WriteLine($"Looking for MP3 files in: {Config.InputDirectory}");
         }
     }
 
@@ -140,8 +137,8 @@ public class Workspace : IWorkspace
             process.WaitForExit();
 
             // Optional: Keep debug output if needed
-            // Console.WriteLine($"Duration Detection (ffprobe stdout): {durationStr}");
-            // Console.WriteLine($"Duration Detection (ffprobe stderr): {errorOutput}");
+            // AnsiConsole.WriteLine($"Duration Detection (ffprobe stdout): {durationStr}");
+            // AnsiConsole.WriteLine($"Duration Detection (ffprobe stderr): {errorOutput}");
 
             // Directly parse the output string
             if (!string.IsNullOrWhiteSpace(durationStr) &&
@@ -155,12 +152,12 @@ public class Workspace : IWorkspace
             }
             else if (!string.IsNullOrWhiteSpace(errorOutput)) // Log if there was an error message
             {
-                 Console.WriteLine($"ffprobe stderr (duration check): {errorOutput}");
+                 AnsiConsole.MarkupLine($"[yellow]ffprobe stderr (duration check): {Markup.Escape(errorOutput)}[/]"); // Use MarkupLine and Escape
             }
         }
         catch (Exception ex)
         {
-             Console.WriteLine($"Error running ffprobe for duration: {ex.Message}");
+             AnsiConsole.MarkupLine($"[red]Error running ffprobe for duration: {Markup.Escape(ex.Message)}[/]"); // Use MarkupLine and Escape
         }
 
 
