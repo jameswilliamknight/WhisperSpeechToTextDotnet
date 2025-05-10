@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices; // Added for OS detection
 using System.Text;
 using Spectre.Console;
 using Whisper.net;
+using NAudio.Wave; // Added for NAudio
 
 namespace WhisperPrototype;
 
@@ -283,15 +285,108 @@ public class Workspace : IWorkspace
 
     public async Task StartLiveTranscriptionAsync()
     {
-        // TODO: Implement live transcription logic here
-        // This will involve:
-        // 1. Initialising Audio Input (NAudio) - Task 2.2
-        // 2. Initialising Whisper.net for Streaming - Task 2.3
-        // 3. Implementing Real-time Audio Processing Loop - Task 2.4
-        // 4. Implementing Stop Mechanism - Task 2.5
-        // 5. Basic Error Handling - Task 2.6
+        AnsiConsole.MarkupLine("[cyan]Initialising live transcription...[/]");
+
+        IAudioCaptureService audioCaptureService;
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            AnsiConsole.MarkupLine("[green]Linux platform detected. Using arecord for audio capture.[/]");
+            audioCaptureService = new LinuxArecordAudioCaptureService(); 
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            AnsiConsole.MarkupLine("[green]Windows platform detected. Using NAudio for audio capture.[/]");
+            audioCaptureService = new WindowsNAudioAudioCaptureService(); 
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[red]Error: Unsupported OS platform for audio capture: {RuntimeInformation.OSDescription}[/]");
+            return;
+        }
+
+        // Ensure audioCaptureService is not null if we proceed past the NotImplementedExceptions
+        // For this refactoring step, the code below this point will not be reached until implementations exist.
+        
+        await using (audioCaptureService) // audioCaptureService will be disposed automatically
+        {
+            var devices = await audioCaptureService.GetAvailableDevicesAsync();
+            var audioDevices = devices.ToList();
+
+            if (!audioDevices.Any())
+            {
+                AnsiConsole.MarkupLine("[red]Error: No audio input devices found by the capture service.[/]");
+                return;
+            }
+
+            AnsiConsole.MarkupLine($"Found [green]{audioDevices.Count}[/] audio input device(s).");
+
+            string selectedDeviceId = audioDevices.First().Id; // Default to the first device
+
+            if (audioDevices.Count > 1)
+            {
+                var choices = audioDevices.ToDictionary(d => $"{d.Id}: {d.Name}", d => d.Id);
+                var selectionPrompt = new SelectionPrompt<string>()
+                    .Title("Multiple audio input devices detected. Please select one:")
+                    .PageSize(10)
+                    .AddChoices(choices.Keys);
+
+                var selectedDeviceKey = await AnsiConsole.PromptAsync(selectionPrompt);
+                selectedDeviceId = choices[selectedDeviceKey];
+                AnsiConsole.MarkupLine($"Selected device: [blue]{selectedDeviceKey}[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"Using default device: [blue]{audioDevices.First().Name}[/]");
+            }
+
+            // Define desired wave format (16kHz, 16-bit, Mono)
+            var desiredWaveFormat = new WaveFormat(16000, 16, 1);
+
+            audioCaptureService.AudioDataAvailable += (sender, args) =>
+            {
+                // TODO: Buffer audio data (args.Buffer, args.BytesRecorded) - Task 2.4
+                // AnsiConsole.MarkupLine($"Audio data received: {args.BytesRecorded} bytes");
+            };
+
+            try
+            {
+                await audioCaptureService.StartCaptureAsync(selectedDeviceId, desiredWaveFormat);
+                AnsiConsole.MarkupLine("[green]Recording started. Listening for audio...[/]");
+                AnsiConsole.MarkupLine("Press [yellow]ESC[/] to stop.");
+
+                // Keep alive until stop requested
+                while (true) 
+                {
+                    if (Console.KeyAvailable)
+                    {
+                        var key = Console.ReadKey(true);
+                        if (key.Key == ConsoleKey.Escape)
+                        {
+                            AnsiConsole.MarkupLine("\n[yellow]Stop requested by user.[/]");
+                            break;
+                        }
+                    }
+                    await Task.Delay(100); // Prevent busy-waiting
+                }
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]Error during audio capture: {Markup.Escape(ex.Message)}[/]");
+                return;
+            }
+            finally
+            {
+                await audioCaptureService.StopCaptureAsync();
+                AnsiConsole.MarkupLine("[cyan]Recording stopped.[/]");
+            }
+        }
+
+        // TODO: Initialising Whisper.net for Streaming - Task 2.3 (ModelPath, WhisperFactory etc.)
+        // TODO: Implementing Real-time Audio Processing Loop (consuming buffered data) - Task 2.4
+        // TODO: Basic Error Handling review - Task 2.6
         await Task.CompletedTask; // Placeholder
-        AnsiConsole.MarkupLine("[yellow]Live transcription feature is not yet implemented.[/]");
+        AnsiConsole.MarkupLine("[yellow]Live transcription feature is under development (audio capture refactored).[/]");
     }
 
     public FileInfo[] GetAudioRecordings() // Renamed from GetMp3Files

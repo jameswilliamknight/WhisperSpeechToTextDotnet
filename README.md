@@ -8,7 +8,8 @@ _Example uses Ubuntu on WSL on Windows 11, but the same will need to be applied 
 
 ```sh
 sudo apt update
-sudo apt install ffmpeg
+sudo apt install ffmpeg alsa-utils
+
 ```
 
 ## NuGet

@@ -15,6 +15,8 @@ This document provides detailed explanations, rationale, and implementation cons
 
 ## 2. Implement Core Live Transcription Logic
 
+**Next immediate step: Focus on debugging `arecord -l` device detection in `LinuxArecordAudioCaptureService` (Task 2.2).**
+
 This logic will reside in `Workspace.cs`.
 
 ### Task 2.1: Develop a new method (e.g., `StartLiveTranscriptionAsync`)
@@ -22,23 +24,31 @@ This logic will reside in `Workspace.cs`.
 -   **Purpose:** This public asynchronous method will be the main entry point for the live transcription feature.
 -   **Signature:** `public async Task StartLiveTranscriptionAsync()`
 -   **Responsibilities:** Orchestrate audio initialization, Whisper.net setup, the processing loop, and cleanup.
-    -   [ ] Define the method structure in `Workspace.cs`.
+    -   [x] Define the method structure in `Workspace.cs`.
 
-### Task 2.2: Initialise Audio Input (NAudio)
+### Task 2.2: Initialise Audio Input (Cross-Platform)
 
--   **Goal:** Capture raw audio data from a microphone.
--   **Steps & Considerations:**
-    -   **Device Selection:**
-        -   [ ] Use NAudio to list available audio input devices (`WaveInEvent.DeviceCount`, `WaveInEvent.GetCapabilities(n)`).
-        -   [ ] If multiple devices exist, prompt the user to select one (e.g., using `Spectre.Console.SelectionPrompt`).
-        -   **_WSL Specifics:_** _When developing in WSL, verify that your microphone is correctly passed through and recognized by the Ubuntu environment. Test basic audio input in WSL (e.g., with `arecord`) if NAudio encounters issues finding devices. Ensure Windows microphone privacy settings allow access._
-    -   **Audio Capture Setup:**
-        -   [ ] Instantiate `WaveInEvent` (or a similar NAudio class like `WasapiCapture`).
-        -   [ ] Set the desired `WaveFormat`. This is crucial for compatibility with Whisper.
-            -   **Recommended Format:** 16kHz sample rate, 1 channel (mono), 16-bit PCM.
-            -   Example: `waveIn.WaveFormat = new WaveFormat(16000, 16, 1);`
-        -   [ ] Subscribe to the `DataAvailable` event.
-        -   [ ] Start recording using `waveIn.StartRecording()`.
+-   **Goal:** Capture raw audio data from a microphone, using an abstraction to handle platform differences.
+-   **Strategy:**
+    -   [x] **Define `IAudioCaptureService` Interface:** Create an interface for audio capture operations (e.g., list devices, start/stop capture, provide audio data event/stream, dispose). ✅ DONE
+    -   [x] **Implement Platform-Specific Services:**
+        -   [x] `LinuxArecordAudioCaptureService`: Implements `IAudioCaptureService` using `arecord` for WSL/Linux. ✅ DONE (initial implementation)
+        -   [x] `WindowsNAudioAudioCaptureService`: Implements `IAudioCaptureService` using NAudio for Windows. ✅ DONE
+    -   [x] **OS Detection & Service Instantiation:** In `StartLiveTranscriptionAsync`, detect the OS and instantiate the appropriate service. ✅ DONE
+-   **`LinuxArecordAudioCaptureService` Details:**
+    -   **Device Selection (Linux):**
+        -   [🚧] Implement `IAudioCaptureService.GetAvailableDevicesAsync()` using `arecord -l` or similar. 🚧 IN PROGRESS / NEEDS DEBUGGING
+        -   [ ] **Debug `arecord -l` device detection:** Investigate why devices are not listed in WSL. Verify WSL audio configuration, `arecord` functionality directly in WSL, and permissions.
+    -   **Audio Capture Setup (Linux):**
+        -   [ ] Implement `IAudioCaptureService.StartCaptureAsync(deviceId, waveFormat)`.
+-   **`WindowsNAudioAudioCaptureService` Details (Fallback/Alternative):**
+    -   **Device Selection (Windows):**
+        -   [x] Implement `IAudioCaptureService.GetAvailableDevicesAsync()` using `WaveInEvent.DeviceCount` and `WaveInEvent.GetCapabilities(n)`. ✅ DONE
+    -   **Audio Capture Setup (Windows):**
+        -   [x] Implement `IAudioCaptureService.StartCaptureAsync(deviceId, waveFormat)`. ✅ DONE
+        -   [x] Instantiate `WaveInEvent` with selected device and `WaveFormat`. ✅ DONE
+        -   [x] Subscribe to `DataAvailable` and raise the `IAudioCaptureService.AudioDataAvailable` event. ✅ DONE
+        -   [x] Start recording using `waveIn.StartRecording()`. ✅ DONE
 
 ### Task 2.3: Initialise Whisper.net for Streaming
 
