@@ -2,8 +2,6 @@
 using WhisperPrototype;
 using Microsoft.Extensions.Configuration;
 
-// --- Start of Top-Level Statements --- 
-
 var exitRequested = false;
 
 // Build configuration
@@ -45,14 +43,18 @@ while (!exitRequested)
             .Title("What would you like to do?")
             .PageSize(5)
             .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
-            .AddChoices(new[] { "Process MP3 files", "Exit" }));
+            .AddChoices("Process MP3 files", "Exit"));
 
     switch (choice)
     {
         case "Process MP3 files":
             var mp3Files = workspace.GetMp3Files();
-            await menuEngine.SelectFromOptionsAndDelegateProcessingAsync(mp3Files, async (chosenFiles) => await workspace.Process(chosenFiles), "MP3");
+            await menuEngine.SelectFromOptionsAndDelegateProcessingAsync(
+                mp3Files,
+                async (chosenFiles) => await workspace.Process(chosenFiles), 
+                "MP3");
             break;
+        
         case "Exit":
             exitRequested = true;
             break;
@@ -61,6 +63,6 @@ while (!exitRequested)
 
 AnsiConsole.MarkupLine("\n[green]Application exited.[/]");
 AnsiConsole.MarkupLine("Press any key to close the window.");
-Console.ReadKey(); // Keep window open until a key is pressed
 
-// --- End of Top-Level Statements ---
+// Keep window open until a key is pressed
+Console.ReadKey();
