@@ -44,8 +44,8 @@ public class LinuxArecordAudioCaptureService : IAudioCaptureService
                 }
             };
             process.Start();
-            string output = await process.StandardOutput.ReadToEndAsync();
-            string error = await process.StandardError.ReadToEndAsync();
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
 
             if (process.ExitCode != 0 || !string.IsNullOrWhiteSpace(error))
@@ -61,12 +61,12 @@ public class LinuxArecordAudioCaptureService : IAudioCaptureService
                 var match = ArecordDeviceRegex.Match(line);
                 if (match.Success)
                 {
-                    string cardNum = match.Groups[1].Value;
-                    string cardName = match.Groups[2].Value;
-                    string deviceNum = match.Groups[3].Value;
-                    string deviceName = match.Groups[4].Value;
-                    string deviceId = $"hw:{cardNum},{deviceNum}";
-                    string displayName = $"{cardName} - {deviceName} ({deviceId})";
+                    var cardNum = match.Groups[1].Value;
+                    var cardName = match.Groups[2].Value;
+                    var deviceNum = match.Groups[3].Value;
+                    var deviceName = match.Groups[4].Value;
+                    var deviceId = $"hw:{cardNum},{deviceNum}";
+                    var displayName = $"{cardName} - {deviceName} ({deviceId})";
                     devices.Add(new AudioDevice(deviceId, displayName));
                 }
             }
@@ -126,14 +126,14 @@ public class LinuxArecordAudioCaptureService : IAudioCaptureService
                 {
                     // Buffer size: e.g., 16000 (samples/sec) * 2 (bytes/sample) * 0.1 (100ms) = 3200 bytes
                     // Or a common multiple like 4096. BlockAlign for 16bit mono is 2.
-                    int bufferSize = _currentWaveFormat.BlockAlign * 2048; // Approx 0.25s of audio
+                    var bufferSize = _currentWaveFormat.BlockAlign * 2048; // Approx 0.25s of audio
                     var buffer = new byte[bufferSize];
                     
                     AnsiConsole.MarkupLine($"[grey]arecord: Reading audio stream (buffer size: {bufferSize} bytes)...[/]");
                     using var outputStream = _arecordProcess.StandardOutput.BaseStream;
                     while (!token.IsCancellationRequested)
                     {
-                        int bytesRead = await outputStream.ReadAsync(buffer, 0, buffer.Length, token);
+                        var bytesRead = await outputStream.ReadAsync(buffer, 0, buffer.Length, token);
                         if (bytesRead > 0)
                         {
                             // Create a copy of the relevant part of the buffer for the event args

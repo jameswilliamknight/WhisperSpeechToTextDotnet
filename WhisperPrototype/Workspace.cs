@@ -176,11 +176,10 @@ public class Workspace : IWorkspace
         await using var processor = factory.CreateBuilder()
             .WithLanguage("en") // Specify English for faster processing if known
             .Build();
-
-        // Process each MP3 file (now FileInfo objects)
-        foreach (var mp3FileInfo in mp3Files) // mp3Files is now IEnumerable<FileInfo>
+        
+        foreach (var mp3FileInfo in mp3Files)
         {
-            var mp3FilePath = mp3FileInfo.FullName; // Get the full path from FileInfo
+            var mp3FilePath = mp3FileInfo.FullName;
             var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(mp3FilePath);
 
             if (!Directory.Exists(Config.OutputDirectory))
@@ -195,18 +194,18 @@ public class Workspace : IWorkspace
 
             if (File.Exists(outputTxtFilePath))
             {
-                AnsiConsole.MarkupLine($"Output file already exists: [yellow]{Markup.Escape(outputTxtFilePath)}[/]."); // ESCAPED
+                AnsiConsole.MarkupLine($"Output file already exists: [yellow]{Markup.Escape(outputTxtFilePath)}[/].");
 
-                var overwrite = AnsiConsole.Confirm("Do you want to overwrite it?", defaultValue: false);
+                var overwrite = await AnsiConsole.ConfirmAsync("Do you want to overwrite it?", defaultValue: false);
 
                 if (overwrite)
                 {
-                    AnsiConsole.MarkupLine($"Deleting existing file: [yellow]{Markup.Escape(outputTxtFilePath)}[/]"); // ESCAPED
+                    AnsiConsole.MarkupLine($"Deleting existing file: [yellow]{Markup.Escape(outputTxtFilePath)}[/]");
                     File.Delete(outputTxtFilePath);
                 }
                 else
                 {
-                    AnsiConsole.MarkupLine($"Skipping processing for: [blue]{Markup.Escape(mp3FileInfo.Name)}[/]"); // ESCAPED
+                    AnsiConsole.MarkupLine($"Skipping processing for: [blue]{Markup.Escape(mp3FileInfo.Name)}[/]");
                     continue;
                 }
             }
@@ -260,13 +259,13 @@ public class Workspace : IWorkspace
                 }
 
                 await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
-                AnsiConsole.MarkupLine($"Transcription saved to: [yellow]{Markup.Escape(outputTxtFilePath)}[/]"); // ESCAPED
+                AnsiConsole.MarkupLine($"Transcription saved to: [yellow]{Markup.Escape(outputTxtFilePath)}[/]");
                 AnsiConsole.WriteLine(transcription.ToString());
-                AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {Markup.Escape(mp3FileInfo.Name)} ---"); // ESCAPED
+                AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {Markup.Escape(mp3FileInfo.Name)} ---");
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]Error processing {Markup.Escape(mp3FileInfo.Name)}:[/] {Markup.Escape(ex.Message)}"); // ESCAPED
+                AnsiConsole.MarkupLine($"[red]Error processing {Markup.Escape(mp3FileInfo.Name)}:[/] {Markup.Escape(ex.Message)}");
             }
             finally
             {
@@ -302,10 +301,7 @@ public class Workspace : IWorkspace
             return;
         }
 
-        // Ensure audioCaptureService is not null if we proceed past the NotImplementedExceptions
-        // For this refactoring step, the code below this point will not be reached until implementations exist.
-        
-        await using (audioCaptureService) // audioCaptureService will be disposed automatically
+        await using (audioCaptureService)
         {
             var devices = await audioCaptureService.GetAvailableDevicesAsync();
             var audioDevices = devices.ToList();
@@ -318,7 +314,7 @@ public class Workspace : IWorkspace
 
             AnsiConsole.MarkupLine($"Found [green]{audioDevices.Count}[/] audio input device(s).");
 
-            string selectedDeviceId = audioDevices.First().Id; // Default to the first device
+            var selectedDeviceId = audioDevices.First().Id; // Default to the first device
 
             if (audioDevices.Count > 1)
             {
@@ -400,12 +396,12 @@ public class Workspace : IWorkspace
 
         if (!audioFileInfos.Any())
         {
-            AnsiConsole.MarkupLine($"[yellow]No audio recordings (*.mp3) found in {Markup.Escape(Config.InputDirectory)}.[/]"); // Updated message
-            AnsiConsole.MarkupLine("Please place your audio recording files in this directory and run the application again."); // Updated message
+            AnsiConsole.MarkupLine($"[yellow]No audio recordings (*.mp3) found in {Markup.Escape(Config.InputDirectory)}.[/]");
+            AnsiConsole.MarkupLine("Please place your audio recording files in this directory and run the application again.");
             return [];
         }
 
-        AnsiConsole.MarkupLine($"Found [green]{audioFileInfos.Count}[/] audio recording(s) (*.mp3) to process."); // Updated message
+        AnsiConsole.MarkupLine($"Found [green]{audioFileInfos.Count}[/] audio recording(s) (*.mp3) to process.");
         return audioFileInfos.ToArray();
     }
 }
