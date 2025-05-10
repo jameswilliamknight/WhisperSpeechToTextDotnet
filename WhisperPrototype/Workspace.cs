@@ -263,26 +263,35 @@ public class Workspace : IWorkspace
                 await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
                 AnsiConsole.MarkupLine($"Transcription saved to: [yellow]{Markup.Escape(outputTxtFilePath)}[/]"); // ESCAPED
                 AnsiConsole.WriteLine(transcription.ToString());
+                AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {Markup.Escape(mp3FileInfo.Name)} ---"); // ESCAPED
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]An error occurred while processing {Markup.Escape(mp3FileInfo.Name)}: {Markup.Escape(ex.Message)}[/]"); // ESCAPED
+                AnsiConsole.MarkupLine($"[red]Error processing {Markup.Escape(mp3FileInfo.Name)}:[/] {Markup.Escape(ex.Message)}"); // ESCAPED
             }
             finally
             {
                 if (File.Exists(tempWavFilePath))
                 {
-                    try
-                    {
-                        File.Delete(tempWavFilePath);
-                    }
-                    catch (Exception cleanEx)
-                    {
-                        AnsiConsole.MarkupLine($"[yellow]Warning:[/] Could not delete temporary WAV file {tempWavFilePath}: {cleanEx.Message}");
-                    }
+                    File.Delete(tempWavFilePath);
                 }
             }
         }
+
+        AnsiConsole.MarkupLine("\nAll files processed.");
+    }
+
+    public async Task StartLiveTranscriptionAsync()
+    {
+        // TODO: Implement live transcription logic here
+        // This will involve:
+        // 1. Initialising Audio Input (NAudio) - Task 2.2
+        // 2. Initialising Whisper.net for Streaming - Task 2.3
+        // 3. Implementing Real-time Audio Processing Loop - Task 2.4
+        // 4. Implementing Stop Mechanism - Task 2.5
+        // 5. Basic Error Handling - Task 2.6
+        await Task.CompletedTask; // Placeholder
+        AnsiConsole.MarkupLine("[yellow]Live transcription feature is not yet implemented.[/]");
     }
 
     public FileInfo[] GetAudioRecordings() // Renamed from GetMp3Files

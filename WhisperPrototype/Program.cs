@@ -59,11 +59,10 @@ while (!exitRequested)
 
         case "Live Transcription":
             AnsiConsole.MarkupLine("[cyan]Starting live transcription...[/]");
-            // Placeholder for the actual call. This method will be implemented in Workspace.cs
-            // await workspace.StartLiveTranscriptionAsync(); 
-            AnsiConsole.MarkupLine("[yellow]Live transcription feature not yet fully implemented.[/]");
-            AnsiConsole.MarkupLine("Press any key to return to the main menu.");
-            Console.ReadKey(); // Keep the message visible until a key is pressed
+            await workspace.StartLiveTranscriptionAsync(); 
+            // AnsiConsole.MarkupLine("[yellow]Live transcription feature not yet fully implemented.[/]");
+            // AnsiConsole.MarkupLine("Press any key to return to the main menu.");
+            // Console.ReadKey(); // Keep the message visible until a key is pressed
             break;
 
         case "Manage Models":
