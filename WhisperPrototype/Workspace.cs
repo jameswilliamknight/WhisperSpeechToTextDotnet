@@ -33,7 +33,7 @@ public class Workspace : IWorkspace
         Config = appConfig;
         Console.WriteLine("Preparing and checking this device before attempting conversion.");
 
-        var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models"); // Get path to the 'Models' folder
+        var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models");
 
         if (!Directory.Exists(modelDirectory))
         {
@@ -41,13 +41,11 @@ public class Workspace : IWorkspace
             throw new DirectoryNotFoundException($"Model directory not found: {modelDirectory}");
         }
 
-        // Get all files in the model directory that are not hidden (if applicable) and sort them
         var modelFiles = Directory.GetFiles(modelDirectory)
-                                  .Select(f => new FileInfo(f)) // Use FileInfo to easily check attributes if needed
-                                  .Where(f => (f.Attributes & FileAttributes.Hidden) == 0) // Basic check for hidden files
-                                  .OrderBy(f => f.Name) // Sort alphabetically by filename
+                                  .Select(f => new FileInfo(f))
+                                  .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
+                                  .OrderBy(f => f.Name)
                                   .ToList();
-
 
         if (modelFiles.Count == 0)
         {
@@ -55,19 +53,25 @@ public class Workspace : IWorkspace
             throw new FileNotFoundException($"No model files found in {modelDirectory}");
         }
 
-        // Present the model files to the user using Spectre.Console single choice picker
-        var selectedModelFile = AnsiConsole.Prompt(
-            new SelectionPrompt<FileInfo>()
-                .Title("Please select a [green]model file[/] to use:")
-                .PageSize(10) // Show up to 10 options at a time
-                .MoreChoicesText("[grey](Move up and down to reveal more models)[/]")
-                // Use HighlightStyle to apply markup to the selected choice
-                .HighlightStyle("green") // Highlight the selected choice in green
-                .AddChoices(modelFiles)
-                .UseConverter(f => f.Name) // Display only the filename
+        var menuEngine = new MenuEngine(); // Instantiate MenuEngine
+        var selectedModelFileTask = menuEngine.PromptChooseSingleFile(
+            modelFiles,
+            "Please select a [green]model file[/] to use:",
+            f => f.Name
         );
+        // It's a console app, so we can block for this initial setup.
+        // Consider if async all the way up is needed for your app structure.
+        var selectedModelFile = selectedModelFileTask.GetAwaiter().GetResult();
 
-        ModelPath = selectedModelFile.FullName; // Set modelPath to the full path of the selected file
+        if (selectedModelFile == null)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] No model file was selected. Application cannot continue.[/]");
+            // A more robust application might throw an exception or have a specific exit strategy.
+            Environment.Exit(1); // Exit if no model selected
+            return; // Keep compiler happy about selectedModelFile potentially being null later
+        }
+
+        ModelPath = selectedModelFile.FullName;
         ModelName = selectedModelFile.Name;
         Console.WriteLine($"Selected model: {ModelPath}");
 
@@ -162,10 +166,10 @@ public class Workspace : IWorkspace
     }
 
 
-    public async Task Process(IEnumerable<string> mp3Files)
+    public async Task Process(IEnumerable<FileInfo> mp3Files)
     {
         // Create Whisper factory from the model path
-        using var factory = WhisperFactory.FromPath(ModelPath);
+        using var factory = WhisperFactory.FromPath(ModelPath!);
 
         // Configure the processor - we'll assume English for now for better performance
         // You can remove .WithLanguage("en") to enable language detection, but it's slower.
@@ -174,9 +178,10 @@ public class Workspace : IWorkspace
             .WithLanguage("en") // Specify English for faster processing if known
             .Build();
 
-        // Process each MP3 file
-        foreach (var mp3FilePath in mp3Files)
+        // Process each MP3 file (now FileInfo objects)
+        foreach (var mp3FileInfo in mp3Files) // mp3Files is now IEnumerable<FileInfo>
         {
+            var mp3FilePath = mp3FileInfo.FullName; // Get the full path from FileInfo
             var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(mp3FilePath);
 
             if (!Directory.Exists(Config.OutputDirectory))
@@ -185,38 +190,37 @@ public class Workspace : IWorkspace
             }
 
             var outputTxtFilePath = Path.Combine(Config.OutputDirectory!, $"{fileNameWithoutExtension}_{ModelName}.txt");
-            var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav"); // Use a temp path for WAV
+            var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav");
 
-            Console.WriteLine($"\nProcessing: {mp3FilePath}");
+            AnsiConsole.MarkupLine($"\nProcessing: [blue]{Markup.Escape(mp3FileInfo.Name)}[/]"); // Use Name for display, ESCAPED
 
             if (File.Exists(outputTxtFilePath))
             {
-                Console.WriteLine($"Output file already exists: {outputTxtFilePath}.");
+                AnsiConsole.MarkupLine($"Output file already exists: [yellow]{Markup.Escape(outputTxtFilePath)}[/]."); // ESCAPED
 
-                // Ask the user if they want to overwrite the file using Spectre.Console
                 var overwrite = AnsiConsole.Confirm("Do you want to overwrite it?", defaultValue: false);
 
                 if (overwrite)
                 {
-                    Console.WriteLine($"Deleting existing file: {outputTxtFilePath}");
+                    AnsiConsole.MarkupLine($"Deleting existing file: [yellow]{Markup.Escape(outputTxtFilePath)}[/]"); // ESCAPED
                     File.Delete(outputTxtFilePath);
                 }
                 else
                 {
-                    Console.WriteLine($"Skipping processing for: {mp3FilePath}");
-                    continue; // Skip if the user doesn't want to overwrite
+                    AnsiConsole.MarkupLine($"Skipping processing for: [blue]{Markup.Escape(mp3FileInfo.Name)}[/]"); // ESCAPED
+                    continue;
                 }
             }
 
             try
             {
-                Console.WriteLine("Converting MP3 to WAV using ffmpeg...");
+                AnsiConsole.MarkupLine("Converting MP3 to WAV using ffmpeg...");
 
                 IAudioConverter converter = new AudioConverter();
                 converter.ToWav(mp3FilePath, tempWavFilePath);
-                Console.WriteLine("Conversion complete.");
+                AnsiConsole.MarkupLine("Conversion complete.");
 
-                Console.WriteLine("Starting transcription...");
+                AnsiConsole.MarkupLine("Starting transcription...");
 
                 if (!File.Exists(tempWavFilePath))
                 {
@@ -226,98 +230,81 @@ public class Workspace : IWorkspace
                 var sw = new Stopwatch();
                 sw.Start();
 
-                // Read the temporary WAV file
                 await using var audioStream = File.OpenRead(tempWavFilePath);
-
                 var transcription = new StringBuilder();
 
-                // Process the audio stream
                 await foreach (var segment in processor.ProcessAsync(audioStream))
                 {
-                    // segment.Start and segment.End provide timestamps (TimeSpan objects)
-                    // segment.Text is the transcribed text for that segment
-                    // Console.WriteLine($"[{segment.Start} --> {segment.End}] {segment.Text}");
-                    transcription.Append(segment.Text); // Append text from each segment
+                    transcription.Append(segment.Text);
                 }
                 sw.Stop();
 
                 var audioDuration = GetAudioDuration(tempWavFilePath);
-
-                Console.WriteLine("Transcription of {0} seconds of audio completed in {1} seconds ({2} ratio).", audioDuration.Value.TotalSeconds, sw.Elapsed.TotalSeconds,
-                    (audioDuration.Value.Ticks / sw.Elapsed.Ticks));
-
-                // Calculate ratio using doubles for floating-point division
-                var ratio = sw.Elapsed.TotalSeconds / audioDuration.Value.TotalSeconds;
-
-                // Use string interpolation with format specifiers (F2 = Fixed-point, 2 decimals)
-                Console.WriteLine(
-                    $"Transcription of {audioDuration.Value.TotalSeconds:F2} seconds of audio completed in {sw.Elapsed.TotalSeconds:F2} seconds ({ratio:F2} ratio)."
-                );
-
-                // --- Optional: Add the speed comparison back if you liked it ---
-                string speedComparison;
-                if (ratio < 1)
+                if (audioDuration == null)
                 {
-                    speedComparison = $"([bold green]{1/ratio:F2}x faster[/])";
-                }
-                else if (ratio > 1)
-                {
-                    speedComparison = $"([bold red]{1/ratio:F2}x speed[/])";
+                    AnsiConsole.MarkupLine("[red]Error:[/] Could not determine audio duration for calculations.");
                 }
                 else
                 {
-                    speedComparison = "(Realtime)";
+                    var ratio = sw.Elapsed.TotalSeconds / audioDuration.Value.TotalSeconds;
+                    var audioDurationText = audioDuration.Value.TotalSeconds.ToString("F2");
+                    var elapsedText = sw.Elapsed.TotalSeconds.ToString("F2");
+                    var ratioText = ratio.ToString("F2");
+                    var speedColor = ratio < 1 ? "green" : "red";
+                    
+                    // Construct the speed details part with its own markup, e.g., "[bold green]0.75x speed[/]"
+                    var speedDetailsMarkup = $"[bold {speedColor}]{ratioText}x speed[/]";
+
+                    AnsiConsole.MarkupLine(
+                        $"Transcription of [green]{audioDurationText}s[/] audio completed in [yellow]{elapsedText}s[/] ({speedDetailsMarkup})."
+                    );
                 }
-                AnsiConsole.MarkupLine($"Processing took [yellow]{ratio:F2}[/] times the audio duration {speedComparison}.");
-                // --- End Optional ---
 
-
-                // Save the transcription to a text file
                 await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
-                Console.WriteLine($"Transcription saved to: {outputTxtFilePath}");
+                AnsiConsole.MarkupLine($"Transcription saved to: [yellow]{Markup.Escape(outputTxtFilePath)}[/]"); // ESCAPED
                 AnsiConsole.WriteLine(transcription.ToString());
             }
             catch (Exception ex)
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"An error occurred while processing {mp3FilePath}: {ex.Message}");
-                Console.ResetColor();
-                // You might want more detailed logging here in a real application
+                AnsiConsole.MarkupLine($"[red]An error occurred while processing {Markup.Escape(mp3FileInfo.Name)}: {Markup.Escape(ex.Message)}[/]"); // ESCAPED
             }
             finally
             {
-                // Clean up the temporary WAV file
                 if (File.Exists(tempWavFilePath))
                 {
                     try
                     {
                         File.Delete(tempWavFilePath);
-                        // Console.WriteLine($"Cleaned up temporary WAV: {tempWavFilePath}");
                     }
                     catch (Exception cleanEx)
                     {
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine($"Warning: Could not delete temporary WAV file {tempWavFilePath}: {cleanEx.Message}");
-                        Console.ResetColor();
+                        AnsiConsole.MarkupLine($"[yellow]Warning:[/] Could not delete temporary WAV file {tempWavFilePath}: {cleanEx.Message}");
                     }
                 }
             }
         }
     }
 
-    public string[] GetMp3Files()
+    public FileInfo[] GetAudioRecordings() // Renamed from GetMp3Files
     {
-        var mp3Files = Directory.GetFiles(Config.InputDirectory!, "*.mp3");
-
-        if (mp3Files.Length == 0)
+        if (Config.InputDirectory == null || !Directory.Exists(Config.InputDirectory))
         {
-            Console.WriteLine($"No MP3 files found in {Config.InputDirectory}.");
-            Console.WriteLine("Please place your MP3 files in this directory and run the application again.");
+            AnsiConsole.MarkupLine($"[red]Error:[/] Input directory '{Markup.Escape(Config.InputDirectory ?? "<null>")}' not found or not configured.");
             return [];
         }
 
-        Console.WriteLine($"Found {mp3Files.Length} MP3 file(s) to process.");
+        // Still looking for .mp3 files specifically, but method name is more generic for future expansion.
+        var audioFilePaths = Directory.GetFiles(Config.InputDirectory, "*.mp3"); 
+        var audioFileInfos = audioFilePaths.Select(path => new FileInfo(path)).ToList();
 
-        return mp3Files;
+        if (!audioFileInfos.Any())
+        {
+            AnsiConsole.MarkupLine($"[yellow]No audio recordings (*.mp3) found in {Markup.Escape(Config.InputDirectory)}.[/]"); // Updated message
+            AnsiConsole.MarkupLine("Please place your audio recording files in this directory and run the application again."); // Updated message
+            return [];
+        }
+
+        AnsiConsole.MarkupLine($"Found [green]{audioFileInfos.Count}[/] audio recording(s) (*.mp3) to process."); // Updated message
+        return audioFileInfos.ToArray();
     }
 }

@@ -4,58 +4,82 @@ namespace WhisperPrototype;
 
 public class MenuEngine
 {
-    public async Task SelectFromOptionsAndDelegateProcessingAsync(
-        IEnumerable<string> filesEnumerable,
-        Func<IEnumerable<string>, Task> processAction,
-        string fileType)
+    public async Task SelectMultipleAndProcessAsync<T>(
+        IEnumerable<T> itemsEnumerable,
+        Func<IEnumerable<T>, Task> processAction,
+        string itemTypeDescription, // e.g., "MP3 file" or "Model"
+        Func<T, string> displayConverter) where T : class
     {
-        AnsiConsole.MarkupLine($"\n[underline]{fileType} File Processing Stage[/]");
-        var files = filesEnumerable.ToArray();
+        AnsiConsole.MarkupLine($"\n[underline]{itemTypeDescription} Processing Stage[/]");
+        var items = itemsEnumerable.ToList();
 
-        if (files.Length == 0)
+        if (!items.Any())
         {
-            AnsiConsole.MarkupLine($"[yellow]No {fileType} files available to process.[/]");
+            AnsiConsole.MarkupLine($"[yellow]No {itemTypeDescription.ToLower()}(s) available to process.[/]");
             AnsiConsole.MarkupLine("Press any key to return to the main menu.");
             Console.ReadKey();
             return;
         }
 
-        var mp3FilesChosen = await PromptChooseFiles(files, "MP3");
+        var itemsChosen = await PromptChooseMultipleItemsAsync(items, itemTypeDescription, displayConverter);
 
-        if (mp3FilesChosen is not { Count: > 0 })
+        if (itemsChosen is not { Count: > 0 })
         {
-            AnsiConsole.MarkupLine("[yellow]No files were selected for processing.[/]");
+            AnsiConsole.MarkupLine("[yellow]No items were selected for processing.[/]");
         }
         else
         {
-            AnsiConsole.MarkupLine($"\n[green]Processing {mp3FilesChosen.Count} selected {fileType} file(s)...[/]");
-
-            // ⭐ Use the provided action to process files
-            await processAction(mp3FilesChosen.ToArray());
-
-            AnsiConsole.MarkupLine($"\n[green]Selected {fileType} files processed.[/]");
+            AnsiConsole.MarkupLine($"\n[green]Processing {itemsChosen.Count} selected {itemTypeDescription.ToLower()}(s)...[/]");
+            await processAction(itemsChosen);
+            AnsiConsole.MarkupLine($"\n[green]Selected {itemTypeDescription.ToLower()}(s) processed.[/]");
         }
 
         AnsiConsole.MarkupLine("Press any key to return to the main menu.");
         Console.ReadKey();
     }
 
-    private async Task<List<string>> PromptChooseFiles(IEnumerable<string> files, string fileType)
+    private async Task<List<T>> PromptChooseMultipleItemsAsync<T>(
+        IEnumerable<T> items,
+        string itemTypeDescription, // e.g., "MP3 file"
+        Func<T, string> displayConverter) where T : class
     {
-        AnsiConsole.MarkupLine($"[cyan]Select the {fileType} files you want to process:[/]");
+        AnsiConsole.MarkupLine($"[cyan]Select the {itemTypeDescription.ToLower()}(s) you want to process:[/]");
 
-        var prompt = new MultiSelectionPrompt<string>()
+        var prompt = new MultiSelectionPrompt<T>()
             .Title("Use [blue]Spacebar[/] to toggle selection, [green]Enter[/] to confirm.")
             .PageSize(10)
-            .MoreChoicesText("[grey](Move up and down to reveal more files)[/]")
+            .MoreChoicesText("[grey](Move up and down to reveal more items)[/]")
             .InstructionsText(
-                "[grey](Press [blue]<space>[/] to toggle a file, " +
+                "[grey](Press [blue]<space>[/] to toggle an item, " +
                 "[green]<enter>[/] to accept)[/]")
-            .AddChoices(files);
+            .UseConverter(displayConverter)
+            .AddChoices(items.ToList()); // Ensure it's a list for AddChoices
 
-        // Wait for the user's selection
-        var mp3FilesChosen = await AnsiConsole.PromptAsync(prompt);
+        var itemsChosen = await AnsiConsole.PromptAsync(prompt);
+        return itemsChosen;
+    }
 
-        return mp3FilesChosen;
+    public async Task<T?> PromptChooseSingleFile<T>(
+        IEnumerable<T> items,
+        string title,
+        Func<T, string> displayConverter)
+        where T : class // Ensure T is a reference type if you need to return null for no selection
+    {
+        var itemList = items.ToList();
+        if (!itemList.Any())
+        {
+            AnsiConsole.MarkupLine($"[yellow]No items available to select for: {title.EscapeMarkup()}[/]");
+            return null;
+        }
+
+        var selectionPrompt = new SelectionPrompt<T>()
+            .Title(title)
+            .PageSize(10)
+            .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
+            .HighlightStyle("green")
+            .AddChoices(itemList)
+            .UseConverter(displayConverter);
+
+        return await AnsiConsole.PromptAsync(selectionPrompt);
     }
 }

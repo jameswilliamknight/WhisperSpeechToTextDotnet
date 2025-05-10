@@ -11,14 +11,12 @@ sudo apt update
 sudo apt install ffmpeg
 ```
 
-
 ## NuGet
 
 Install these packages
 
-- `Whisper.net`
-- `NAudio`
-
+-   `Whisper.net`
+-   `NAudio`
 
 ## Models - Download
 
@@ -57,7 +55,6 @@ mkdir models
 mv ggml-large-v3.bin ./models/ggml-large-v3.bin
 ```
 
-
 ### Verify Checksum
 
 ```sh
@@ -65,3 +62,14 @@ sha1sum ./models/ggml-large-v3.bin
 
 # ad82bf6a9043ceed055076d0fd39f5f186ff8062  ./models/ggml-large-v3.bin
 ```
+
+## 📝 Feature Development Plans
+
+-   **Live Transcription Feature:**
+    -   [High-Level Plan](./tasks/live_transcription_plan.md)
+    -   [Implementation Details](./tasks/live_transcription_details.md)
+
+# 💡 Similar Projects
+
+-   **`ufal/whisper_streaming`**: [https://github.com/ufal/whisper_streaming](https://github.com/ufal/whisper_streaming)
+    -   A Python project demonstrating real-time transcription with Whisper. It employs techniques like Voice Activity Detection (VAD), adaptive latency, buffer trimming based on segments/sentences, and a local agreement policy to confirm transcribed segments. These are concepts that could be valuable for a robust C# live transcription implementation.

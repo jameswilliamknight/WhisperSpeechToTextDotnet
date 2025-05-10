@@ -43,16 +43,34 @@ while (!exitRequested)
             .Title("What would you like to do?")
             .PageSize(5)
             .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
-            .AddChoices("Process MP3 files", "Exit"));
+            .AddChoices("Process Audio Recordings", "Live Transcription", "Manage Models", "Exit"));
 
     switch (choice)
     {
-        case "Process MP3 files":
-            var mp3Files = workspace.GetMp3Files();
-            await menuEngine.SelectFromOptionsAndDelegateProcessingAsync(
-                mp3Files,
+        case "Process Audio Recordings":
+            var audioFiles = workspace.GetAudioRecordings();
+            await menuEngine.SelectMultipleAndProcessAsync<FileInfo>(
+                audioFiles,
                 async (chosenFiles) => await workspace.Process(chosenFiles),
-                "MP3");
+                "Audio Recording",
+                fi => fi.Name
+            );
+            break;
+
+        case "Live Transcription":
+            AnsiConsole.MarkupLine("[cyan]Starting live transcription...[/]");
+            // Placeholder for the actual call. This method will be implemented in Workspace.cs
+            // await workspace.StartLiveTranscriptionAsync(); 
+            AnsiConsole.MarkupLine("[yellow]Live transcription feature not yet fully implemented.[/]");
+            AnsiConsole.MarkupLine("Press any key to return to the main menu.");
+            Console.ReadKey(); // Keep the message visible until a key is pressed
+            break;
+
+        case "Manage Models":
+            AnsiConsole.MarkupLine("[cyan]Model Management...[/]");
+            AnsiConsole.MarkupLine("[yellow]Model management feature not yet fully implemented.[/]");
+            AnsiConsole.MarkupLine("Press any key to return to the main menu.");
+            Console.ReadKey(); // Keep the message visible until a key is pressed
             break;
 
         case "Exit":
