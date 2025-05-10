@@ -1,8 +1,8 @@
-[<- Back to Main README](../README.md)
+[<- Back to Main README](../../README.md)
 
 # Live Transcription Feature - Implementation Details
 
-This document provides detailed explanations, rationale, and implementation considerations for the tasks outlined in the [Live Transcription Feature Plan](../docs/live_transcription/README.md).
+This document provides detailed explanations, rationale, and implementation considerations for the tasks outlined in the [Live Transcription Feature Plan](./README.md).
 
 ## 1. Modify `Program.cs` for Menu Integration
 

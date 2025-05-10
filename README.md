@@ -66,8 +66,12 @@ sha1sum ./models/ggml-large-v3.bin
 ## 📝 Feature Development Plans
 
 -   **Live Transcription Feature:**
-    -   [High-Level Plan](./tasks/live_transcription_plan.md)
-    -   [Implementation Details](./tasks/live_transcription_details.md)
+    -   [High-Level Plan](./docs/live_transcription/README.md)
+    -   [Implementation Details](./docs/live_transcription/Details.md)
+
+-   **Model Management Features**
+    -   [High-Level Plan](./docs/model_management/README.md)
+    -   [Roadmap](./docs/model_management/Roadmap.md)
 
 # 💡 Similar Projects
 

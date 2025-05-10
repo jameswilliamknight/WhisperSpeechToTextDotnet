@@ -1,4 +1,4 @@
-[<- Back to Main README](../README.md)
+[<- Back to Main README](../../README.md)
 
 # Live Transcription Feature Plan
 
@@ -38,4 +38,4 @@ This document outlines the high-level tasks required to implement the live trans
 
 ## Associated Detailed Document
 
-For detailed explanations, rationale, and implementation considerations for each task, please refer to [Live Transcription Implementation Details](../docs/live_transcription/Details.md).
+For detailed explanations, rationale, and implementation considerations for each task, please refer to [Live Transcription Implementation Details](./Details.md).
