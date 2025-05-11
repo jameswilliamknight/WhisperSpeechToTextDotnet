@@ -42,8 +42,8 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
                 }
             };
             process.Start();
-            string output = await process.StandardOutput.ReadToEndAsync();
-            string error = await process.StandardError.ReadToEndAsync();
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
 
             if (process.ExitCode != 0 || !string.IsNullOrWhiteSpace(error))
@@ -60,12 +60,12 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
                 if (match.Success)
                 {
                     // string index = match.Groups[1].Value; // Not used as ID directly
-                    string sourceName = match.Groups[2].Value; // This is the PulseAudio source name, use as ID
+                    var sourceName = match.Groups[2].Value; // This is the PulseAudio source name, use as ID
                     // string driver = match.Groups[3].Value;
                     // string format = match.Groups[4].Value;
-                    string description = match.Groups[5].Value.Split('\t').LastOrDefault()?.Trim() ?? sourceName;
+                    var description = match.Groups[5].Value.Split('\t').LastOrDefault()?.Trim() ?? sourceName;
                     // Attempt to make a more friendly display name, fallback to sourceName
-                    string displayName = string.IsNullOrWhiteSpace(description) || description.StartsWith("s16le") ? sourceName : $"{description} ({sourceName})";
+                    var displayName = string.IsNullOrWhiteSpace(description) || description.StartsWith("s16le") ? sourceName : $"{description} ({sourceName})";
 
                     devices.Add(new AudioDevice(sourceName, displayName));
                 }
@@ -125,13 +125,13 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
             {
                 try
                 {
-                    int bufferSize = _currentWaveFormat.BlockAlign * 2048; // Approx 0.25s of audio (16000*2*0.25 = 8000, BlockAlign=2)
+                    var bufferSize = _currentWaveFormat.BlockAlign * 2048; // Approx 0.25s of audio (16000*2*0.25 = 8000, BlockAlign=2)
                     var buffer = new byte[bufferSize];
                     AnsiConsole.MarkupLine($"[grey]parec (WSL): Reading audio stream (buffer size: {bufferSize} bytes)...[/]");
                     using var outputStream = _parecProcess.StandardOutput.BaseStream;
                     while (!token.IsCancellationRequested)
                     {
-                        int bytesRead = await outputStream.ReadAsync(buffer, 0, buffer.Length, token);
+                        var bytesRead = await outputStream.ReadAsync(buffer, 0, buffer.Length, token);
                         if (bytesRead > 0)
                         {
                             var eventBuffer = new byte[bytesRead];

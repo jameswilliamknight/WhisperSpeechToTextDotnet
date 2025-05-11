@@ -2,6 +2,6 @@ namespace WhisperPrototype;
 
 public interface IWorkspace
 {
-    Task Process(IEnumerable<FileInfo> mp3Files);
+    Task Process(IEnumerable<FileInfo> audioFiles);
     FileInfo[] GetAudioRecordings();
 }

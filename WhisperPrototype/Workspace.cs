@@ -128,7 +128,7 @@ public class Workspace : IWorkspace
                 double.TryParse(
                     durationStr,
                     System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, 
+                    System.Globalization.CultureInfo.InvariantCulture,
                     out var durationSeconds))
             {
                 return TimeSpan.FromSeconds(durationSeconds);
@@ -164,15 +164,15 @@ public class Workspace : IWorkspace
             {
                 if (File.Exists("/proc/version"))
                 {
-                    string versionInfo = File.ReadAllText("/proc/version");
-                    if (versionInfo.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) || 
+                    var versionInfo = File.ReadAllText("/proc/version");
+                    if (versionInfo.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) ||
                         versionInfo.Contains("WSL", StringComparison.OrdinalIgnoreCase))
                     {
                         return true;
                     }
                 }
             }
-            catch (Exception ex) 
+            catch (Exception ex)
             {
                 // Ignore errors reading /proc/version, e.g. permission denied, and proceed to default Linux behavior
                 AnsiConsole.MarkupLine($"[grey]IsWsl: Error checking /proc/version: {Markup.Escape(ex.Message)}[/]");
@@ -181,7 +181,7 @@ public class Workspace : IWorkspace
         return false;
     }
 
-    public async Task Process(IEnumerable<FileInfo> mp3Files)
+    public async Task Process(IEnumerable<FileInfo> audioFiles)
     {
         // Create Whisper factory from the model path
         using var factory = WhisperFactory.FromPath(ModelPath!);
@@ -192,11 +192,11 @@ public class Workspace : IWorkspace
         await using var processor = factory.CreateBuilder()
             .WithLanguage("en") // Specify English for faster processing if known
             .Build();
-        
-        foreach (var mp3FileInfo in mp3Files)
+
+        foreach (var audioFileInfo in audioFiles)
         {
-            var mp3FilePath = mp3FileInfo.FullName;
-            var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(mp3FilePath);
+            var audioFilePath = audioFileInfo.FullName;
+            var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(audioFilePath);
 
             if (!Directory.Exists(Config.OutputDirectory))
             {
@@ -206,7 +206,7 @@ public class Workspace : IWorkspace
             var outputTxtFilePath = Path.Combine(Config.OutputDirectory!, $"{fileNameWithoutExtension}_{ModelName}.txt");
             var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav");
 
-            AnsiConsole.MarkupLine($"\nProcessing: [blue]{Markup.Escape(mp3FileInfo.Name)}[/]"); // Use Name for display, ESCAPED
+            AnsiConsole.MarkupLine($"\nProcessing: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
 
             if (File.Exists(outputTxtFilePath))
             {
@@ -221,7 +221,7 @@ public class Workspace : IWorkspace
                 }
                 else
                 {
-                    AnsiConsole.MarkupLine($"Skipping processing for: [blue]{Markup.Escape(mp3FileInfo.Name)}[/]");
+                    AnsiConsole.MarkupLine($"Skipping processing for: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
                     continue;
                 }
             }
@@ -231,7 +231,7 @@ public class Workspace : IWorkspace
                 AnsiConsole.MarkupLine("Converting MP3 to WAV using ffmpeg...");
 
                 IAudioConverter converter = new AudioConverter();
-                converter.ToWav(mp3FilePath, tempWavFilePath);
+                converter.ToWav(audioFilePath, tempWavFilePath);
                 AnsiConsole.MarkupLine("Conversion complete.");
 
                 AnsiConsole.MarkupLine("Starting transcription...");
@@ -265,7 +265,7 @@ public class Workspace : IWorkspace
                     var elapsedText = sw.Elapsed.TotalSeconds.ToString("F2");
                     var ratioText = ratio.ToString("F2");
                     var speedColor = ratio < 1 ? "green" : "red";
-                    
+
                     // Construct the speed details part with its own markup, e.g., "[bold green]0.75x speed[/]"
                     var speedDetailsMarkup = $"[bold {speedColor}]{ratioText}x speed[/]";
 
@@ -277,11 +277,11 @@ public class Workspace : IWorkspace
                 await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
                 AnsiConsole.MarkupLine($"Transcription saved to: [yellow]{Markup.Escape(outputTxtFilePath)}[/]");
                 AnsiConsole.WriteLine(transcription.ToString());
-                AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {Markup.Escape(mp3FileInfo.Name)} ---");
+                AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {Markup.Escape(audioFileInfo.Name)} ---");
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]Error processing {Markup.Escape(mp3FileInfo.Name)}:[/] {Markup.Escape(ex.Message)}");
+                AnsiConsole.MarkupLine($"[red]Error processing {Markup.Escape(audioFileInfo.Name)}:[/] {Markup.Escape(ex.Message)}");
             }
             finally
             {
@@ -297,116 +297,189 @@ public class Workspace : IWorkspace
 
     public async Task StartLiveTranscriptionAsync()
     {
-        AnsiConsole.MarkupLine("[cyan]Initialising live transcription...[/]");
+        AnsiConsole.MarkupLine("[cyan]Starting live transcription...[/]");
 
-        IAudioCaptureService audioCaptureService;
+        // Task 2.3: Initialise Whisper.net for Streaming
+        AnsiConsole.MarkupLine("[grey]Initializing Whisper.net factory and processor...[/]");
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        using var whisperFactory = WhisperFactory.FromPath(ModelPath!);
+
+        await using var processor = whisperFactory.CreateBuilder()
+            // Defaulting to English ("en").
+            // For automatic language detection, use .WithLanguage("auto") - this may be slower.
+            .WithLanguage("en")
+            .Build();
+
+        AnsiConsole.MarkupLine($"[green]Whisper.net ready with language: en[/]");
+
+        // --- Audio Capture Service Setup (OS-dependent, determined here) ---
+        IAudioCaptureService? audioCaptureService = null;
+        var desiredFormat = new WaveFormat(16000, 16, 1); // PCM, 16kHz, 16-bit, Mono
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            if (IsWsl())
-            {
-                AnsiConsole.MarkupLine("[green]WSL (Linux) platform detected. Using PulseAudio for audio capture.[/]");
-                audioCaptureService = new WslPulseAudioCaptureService();
-            }
-            else
-            {
-                AnsiConsole.MarkupLine("[green]Bare Metal Linux platform detected. Using ALSA/arecord for audio capture.[/]");
-                audioCaptureService = new BareMetalAlsaAudioCaptureService(); 
-            }
+            audioCaptureService = new WindowsNAudioAudioCaptureService();
+             AnsiConsole.MarkupLine("[blue]Selected WindowsNAudioAudioCaptureService.[/]");
         }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        else if (IsWsl())
         {
-            AnsiConsole.MarkupLine("[green]Windows platform detected. Using NAudio for audio capture.[/]");
-            audioCaptureService = new WindowsNAudioAudioCaptureService(); 
+            audioCaptureService = new WslPulseAudioCaptureService();
+            AnsiConsole.MarkupLine("[blue]Selected WslPulseAudioCaptureService for WSL.[/]");
         }
-        else
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            AnsiConsole.MarkupLine($"[red]Error: Unsupported OS platform for audio capture: {RuntimeInformation.OSDescription}[/]");
+            audioCaptureService = new BareMetalAlsaAudioCaptureService();
+            AnsiConsole.MarkupLine("[blue]Selected BareMetalAlsaAudioCaptureService for Linux.[/]");
+        }
+
+        if (audioCaptureService == null)
+        {
+            AnsiConsole.MarkupLine("[red]Error: Could not determine or initialize an audio capture service for the current OS.[/]");
+            return;
+        }
+        // --- End Audio Capture Service Setup ---
+
+        var availableDevices = (await audioCaptureService.GetAvailableDevicesAsync()).ToList();
+        if (!availableDevices.Any())
+        {
+            AnsiConsole.MarkupLine("[yellow]No audio input devices found. Please ensure a microphone is connected and configured.[/]");
+            await audioCaptureService.DisposeAsync();
             return;
         }
 
-        await using (audioCaptureService)
+        AudioDevice selectedDevice;
+        if (availableDevices.Count == 1)
         {
-            var devices = await audioCaptureService.GetAvailableDevicesAsync();
-            var audioDevices = devices.ToList();
+            selectedDevice = availableDevices.First();
+            AnsiConsole.MarkupLine($"[green]Using default device: {Markup.Escape(selectedDevice.Name)}[/]");
+        }
+        else
+        {
+            var selectionPrompt = new SelectionPrompt<string>()
+                .Title("Multiple audio input devices detected. Please select one:")
+                .PageSize(10)
+                .AddChoices(availableDevices.Select(d => d.Name));
 
-            if (!audioDevices.Any())
-            {
-                AnsiConsole.MarkupLine("[red]Error: No audio input devices found by the capture service.[/]");
-                return;
-            }
-
-            AnsiConsole.MarkupLine($"Found [green]{audioDevices.Count}[/] audio input device(s).");
-
-            var selectedDeviceId = audioDevices.First().Id; // Default to the first device
-
-            if (audioDevices.Count > 1)
-            {
-                var choices = audioDevices.ToDictionary(d => $"{d.Id}: {d.Name}", d => d.Id);
-                var selectionPrompt = new SelectionPrompt<string>()
-                    .Title("Multiple audio input devices detected. Please select one:")
-                    .PageSize(10)
-                    .AddChoices(choices.Keys);
-
-                var selectedDeviceKey = await AnsiConsole.PromptAsync(selectionPrompt);
-                selectedDeviceId = choices[selectedDeviceKey];
-                AnsiConsole.MarkupLine($"Selected device: [blue]{selectedDeviceKey}[/]");
-            }
-            else
-            {
-                AnsiConsole.MarkupLine($"Using default device: [blue]{audioDevices.First().Name}[/]");
-            }
-
-            // Define desired wave format (16kHz, 16-bit, Mono)
-            var desiredWaveFormat = new WaveFormat(16000, 16, 1);
-
-            audioCaptureService.AudioDataAvailable += (sender, args) =>
-            {
-                // TODO: Buffer audio data (args.Buffer, args.BytesRecorded) - Task 2.4
-                // AnsiConsole.MarkupLine($"Audio data received: {args.BytesRecorded} bytes");
-            };
-
-            try
-            {
-                await audioCaptureService.StartCaptureAsync(selectedDeviceId, desiredWaveFormat);
-                AnsiConsole.MarkupLine("[green]Recording started. Listening for audio...[/]");
-                AnsiConsole.MarkupLine("Press [yellow]ESC[/] to stop.");
-
-                // Keep alive until stop requested
-                while (true) 
-                {
-                    if (Console.KeyAvailable)
-                    {
-                        var key = Console.ReadKey(true);
-                        if (key.Key == ConsoleKey.Escape)
-                        {
-                            AnsiConsole.MarkupLine("\n[yellow]Stop requested by user.[/]");
-                            break;
-                        }
-                    }
-                    await Task.Delay(100); // Prevent busy-waiting
-                }
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.MarkupLine($"[red]Error during audio capture: {Markup.Escape(ex.Message)}[/]");
-                return;
-            }
-            finally
-            {
-                await audioCaptureService.StopCaptureAsync();
-                AnsiConsole.MarkupLine("[cyan]Recording stopped.[/]");
-            }
+            var selectedDisplayName = await AnsiConsole.PromptAsync(selectionPrompt);
+            selectedDevice = availableDevices.First(d => d.Name == selectedDisplayName);
+            AnsiConsole.MarkupLine($"[green]Using device: {Markup.Escape(selectedDevice.Name)}[/]");
         }
 
-        // TODO: Initialising Whisper.net for Streaming - Task 2.3 (ModelPath, WhisperFactory etc.)
-        // TODO: Implementing Real-time Audio Processing Loop (consuming buffered data) - Task 2.4
-        // TODO: Basic Error Handling review - Task 2.6
-        await Task.CompletedTask; // Placeholder
-        AnsiConsole.MarkupLine("[yellow]Live transcription feature is under development (audio capture refactored).[/]");
+        var audioBuffer = new MemoryStream();
+        var transcriptionBuffer = new StringBuilder();
+        var stopRequested = false;
+        
+
+        var lastProcessTime = DateTime.UtcNow; // TODO: figure out if this is useful, because it's not being read anywhere.
+        // Target 5 seconds of audio data before processing. 16kHz, 16-bit mono = 32,000 bytes/sec.
+        // So, 5 seconds = 160,000 bytes. This is a starting point.
+        const int bytesPerSecond = 16000 * 2 * 1; // SampleRate * (BitsPerSample/8) * Channels
+        const int processThresholdInBytes = bytesPerSecond * 5;
+
+        // Task 2.4: Implement Real-time Audio Processing Loop
+        audioCaptureService.AudioDataAvailable += async (sender, args) =>
+        {
+            if (args.BytesRecorded > 0)
+            {
+                await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded);
+                AnsiConsole.MarkupLine($"[grey]Live: Received {args.BytesRecorded} audio bytes. Buffer size: {audioBuffer.Length} bytes.[/]");
+            }
+        };
+
+        try
+        {
+            await audioCaptureService.StartCaptureAsync(selectedDevice.Id, desiredFormat);
+            AnsiConsole.MarkupLine("[green]Audio capture started. Press [yellow]ESC[/] to stop.[/]");
+
+            // Main loop for checking buffer and stop condition
+            while (!stopRequested)
+            {
+                if (Console.KeyAvailable)
+                {
+                    if (Console.ReadKey(true).Key == ConsoleKey.Escape)
+                    {
+                        stopRequested = true;
+                        AnsiConsole.MarkupLine("[yellow]Stop requested by user.[/]");
+                        break;
+                    }
+                }
+
+                if (audioBuffer.Length >= processThresholdInBytes)
+                {
+                    AnsiConsole.MarkupLine($"[cyan]Processing audio chunk of {audioBuffer.Length} bytes...[/]");
+                    audioBuffer.Seek(0, SeekOrigin.Begin); // Reset stream position for reading
+
+                    var tempBuffer = new byte[audioBuffer.Length];
+                    await audioBuffer.ReadAsync(tempBuffer, 0, tempBuffer.Length); // TODO: do something with the audio buffer.
+
+                    // Clear the main buffer after copying its content
+                    audioBuffer.SetLength(0);
+                    audioBuffer.Seek(0, SeekOrigin.Begin);
+
+                    using var segmentStream = new MemoryStream(tempBuffer);
+
+                    try
+                    {
+                        await foreach (var segment in processor.ProcessAsync(segmentStream))
+                        {
+                            var segmentText = Markup.Escape(segment.Text);
+                            transcriptionBuffer.Append(segmentText);
+                            AnsiConsole.Markup($"[white]{segmentText}[/]"); // Continuous output, consider if new lines are needed
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AnsiConsole.MarkupLine($"[red]Error during transcription: {Markup.Escape(ex.Message)}[/]");
+                        // Optionally, decide if we should stop or continue
+                    }
+                    lastProcessTime = DateTime.UtcNow; // TODO: figure out if this is useful, because it's not being read anywhere.
+                    AnsiConsole.WriteLine(); // Add a newline after processing a chunk for cleaner output
+                }
+
+                await Task.Delay(100); // Small delay to prevent tight loop, adjust as needed
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Error during live transcription: {Markup.Escape(ex.Message)}[/]");
+        }
+        finally
+        {
+            AnsiConsole.MarkupLine("[cyan]Stopping audio capture...[/]");
+            await audioCaptureService.StopCaptureAsync();
+            await audioCaptureService.DisposeAsync();
+            AnsiConsole.MarkupLine("[green]Audio capture stopped and service disposed.[/]");
+            AnsiConsole.MarkupLine("[bold green]Live Transcription Complete:[/]");
+            AnsiConsole.WriteLine(transcriptionBuffer.ToString());
+
+            // Optionally save the full transcription to a file
+            // TODO: Stream it to a file as transcribing, perhaps in batches. Make sure it disposes gracefully and
+            //       writes it's last buffer before the program stops.
+            if (Config.OutputDirectory != null && transcriptionBuffer.Length > 0)
+            {
+                if (!Directory.Exists(Config.OutputDirectory))
+                {
+                    Directory.CreateDirectory(Config.OutputDirectory);
+                }
+                
+                var transcriptPath = Path.Combine(
+                    Config.OutputDirectory,
+                    $"LiveTranscript_{DateTime.Now:yyyyMMddHHmmss}_{ModelName}.txt");
+                
+                try 
+                {
+                    await File.WriteAllTextAsync(transcriptPath, transcriptionBuffer.ToString());
+                    AnsiConsole.MarkupLine($"[green]Full transcript saved to: {Markup.Escape(transcriptPath)}[/]");
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine($"[red]Error saving transcript: {Markup.Escape(ex.Message)}[/]");
+                }
+            }
+        }
     }
 
-    public FileInfo[] GetAudioRecordings() // Renamed from GetMp3Files
+    public FileInfo[] GetAudioRecordings()
     {
         if (Config.InputDirectory == null || !Directory.Exists(Config.InputDirectory))
         {
