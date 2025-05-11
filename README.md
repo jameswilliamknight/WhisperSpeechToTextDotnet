@@ -6,7 +6,6 @@ I wanted to build it so I could one day add something to my Raspberry Pi `raspot
 
 This project is open source to expand my portfolio of work. I didn't know what kind of license to add, so it's probably going to change.
 
-
 ## Setup Guide
 
 ### Environment
@@ -28,10 +27,9 @@ sudo apt install pulseaudio-utils
 
 For guidance on common issues, please refer to the relevant troubleshooting document:
 
-- **Windows Audio (NAudio):** [./docs/troubleshooting/WindowsAudio.md](./docs/troubleshooting/WindowsAudio.md) _(Placeholder - to be created if detailed steps are needed)_
-- **Bare-Metal Linux Audio (ALSA / `arecord`):** [./docs/troubleshooting/BareMetalLinuxAudio.md](./docs/troubleshooting/BareMetalLinuxAudio.md) _(Placeholder - to be created if detailed steps are needed)_
-- **WSL Audio (PulseAudio / `parec` - for Live Transcription):** [./docs/live_transcription/Troubleshooting.md](./docs/live_transcription/Troubleshooting.md)
-
+-   **Windows Audio (NAudio):** [./docs/troubleshooting/WindowsAudio.md](./docs/troubleshooting/WindowsAudio.md) _(Placeholder - to be created if detailed steps are needed)_
+-   **Bare-Metal Linux Audio (ALSA / `arecord`):** [./docs/troubleshooting/BareMetalLinuxAudio.md](./docs/troubleshooting/BareMetalLinuxAudio.md) _(Placeholder - to be created if detailed steps are needed)_
+-   **WSL Audio (PulseAudio / `parec` - for Live Transcription):** [./docs/live_transcription/Troubleshooting.md](./docs/live_transcription/Troubleshooting.md)
 
 ### Models - Download
 
@@ -78,21 +76,46 @@ sha1sum ./models/ggml-large-v3.bin
 # ad82bf6a9043ceed055076d0fd39f5f186ff8062  ./models/ggml-large-v3.bin
 ```
 
-
 ### 📝 Feature Development Plans
 
 #### Live Transcription Feature
 
-- [High-Level Plan](./docs/live_transcription/README.md)
-- [Implementation Details](./docs/live_transcription/Details.md)
+-   [High-Level Plan](./docs/live_transcription/README.md)
+-   [Implementation Details](./docs/live_transcription/Details.md)
 
 #### Model Management Features
 
-- [High-Level Plan](./docs/model_management/README.md)
-- [Roadmap](./docs/model_management/Roadmap.md)
-
+-   [High-Level Plan](./docs/model_management/README.md)
+-   [Roadmap](./docs/model_management/Roadmap.md)
 
 ## 💡 Similar Projects
 
-- **`ufal/whisper_streaming`**: [https://github.com/ufal/whisper_streaming](https://github.com/ufal/whisper_streaming)
-    - A Python project demonstrating real-time transcription with Whisper. It employs techniques like Voice Activity Detection (VAD), adaptive latency, buffer trimming based on segments/sentences, and a local agreement policy to confirm transcribed segments. These are concepts that could be valuable for a robust C# live transcription implementation.
+-   **`ufal/whisper_streaming`**: [https://github.com/ufal/whisper_streaming](https://github.com/ufal/whisper_streaming)
+    -   A Python project demonstrating real-time transcription with Whisper. It employs techniques like Voice Activity Detection (VAD), adaptive latency, buffer trimming based on segments/sentences, and a local agreement policy to confirm transcribed segments. These are concepts that could be valuable for a robust C# live transcription implementation.
+
+## Work In Progress
+
+### Original and Transcription
+
+In this order:
+
+1. Original
+2. Transcription 2025-05-11 18:49:28
+
+Compare:
+
+```
+I must not fear. Fear is the mind-killer.  Fear is the little-death that brings total obliteration.     I will face my fear.     I will permit it to pass over me and through me. And when it has gone past, I will turn the inner eye to see its path. Where the fear has gone there will be nothing. Only I will remain.
+I must not fear  fear is the mind killer  There is the little death that brings total obliteration. and I will face my fear.                   it to pass over me and through me.          it has gone past  I will turn the inner eye to see it. path  where     fear has gone there will be Nothing, only I will remain. [[BLANK_AUDIO]] [[BLANK_AUDIO]] [[BLANK_AUDIO]] [[BLANK_AUDIO]]
+```
+
+### TODO
+
+-   There seems to be gaps
+    -   I'm wondering if I process two streams simultaneously, pass them to `Whisper.cpp`?
+        -   I would somehow need to diff, and the console isn't a great place to show transcribed audio interactively, you need to re-draw/correct previously transcribed text, so it can't just stream in to the console twice, that would be really jumbled.
+    -   Or is there a real bug, perhaps the way I've used the library, and the streaming audio isn't getting a fair chance to reach the library, i.e. are there properties I could set to account for this?
+    -   Do I just need to set the buffer to something longer?
+    -   Is Whisper.cpp processing getting in the way of capturing the audio input stream? Is multi-threading done properly?
+    -   Am I leveraging the GPU? Proof?
+    -   Do I need to leverage more multi-threading / cpu cores, tap into more performance?
