@@ -7,14 +7,26 @@ using NAudio.Wave;
 
 namespace WhisperPrototype;
 
+// Reinstating TranscribedDataEventArgs
+public class TranscribedDataEventArgs(string transcribedText) : EventArgs
+{
+    public string TranscribedText { get; } = transcribedText;
+}
+
 public class Workspace(AppSettings appConfig) : IWorkspace
 {
     private string? ModelPath { get; set; }
     private string? ModelName { get; set; }
-
-    public bool IsInitialised => !string.IsNullOrEmpty(ModelPath) && !string.IsNullOrEmpty(ModelName);
+    
+    private bool IsInitialised => !string.IsNullOrEmpty(ModelPath) && !string.IsNullOrEmpty(ModelName);
     
     private AppSettings Config { get; init; } = appConfig;
+
+    // Event for when a segment of text has been transcribed
+    public event EventHandler<TranscribedDataEventArgs>? TranscribedDataAvailable;
+
+    // Flag to control verbose audio data logging
+    private bool _logAudioDataReceivedMessages = true; // Set to false to disable
 
     public void LoadModel(FileInfo selectedModelFile)
     {
@@ -277,6 +289,9 @@ public class Workspace(AppSettings appConfig) : IWorkspace
             throw new Exception("Please initialize the workspace before processing.");
         }
         
+        // Subscribe to the new event for handling transcribed data
+        this.TranscribedDataAvailable += HandleTranscribedDataOutput; // Changed handler name for clarity
+
         AnsiConsole.MarkupLine("[cyan]Starting live transcription...[/]");
 
         // Task 2.3: Initialise Whisper.net for Streaming
@@ -351,13 +366,16 @@ public class Workspace(AppSettings appConfig) : IWorkspace
         var transcriptionBuffer = new StringBuilder();
         var stopRequested = false;
 
+        // Configuration for audio chunking
+        const float desiredChunkDurationSeconds = 0.75f; // Duration of audio to buffer before processing. Tune for responsiveness vs. transcription quality.
+        const int bytesPerSample = 2; // 16-bit audio
+        const int channels = 1;       // Mono audio
+        const int sampleRate = 16000; // 16kHz
+        const int bytesPerSecond = sampleRate * bytesPerSample * channels;
+        const int processThresholdInBytes = (int)(bytesPerSecond * desiredChunkDurationSeconds);
 
         var lastProcessTime =
-            DateTime.UtcNow; // TODO: figure out if this is useful, because it's not being read anywhere.
-        // Target 5 seconds of audio data before processing. 16kHz, 16-bit mono = 32,000 bytes/sec.
-        // So, 5 seconds = 160,000 bytes. This is a starting point.
-        const int bytesPerSecond = 16000 * 2 * 1; // SampleRate * (BitsPerSample/8) * Channels
-        const int processThresholdInBytes = bytesPerSecond * 5;
+            DateTime.UtcNow; // Kept for potential future duration-based processing trigger
 
         // Task 2.4: Implement Real-time Audio Processing Loop
         audioCaptureService.AudioDataAvailable += async (sender, args) =>
@@ -365,8 +383,11 @@ public class Workspace(AppSettings appConfig) : IWorkspace
             if (args.BytesRecorded > 0)
             {
                 await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded);
-                AnsiConsole.MarkupLine(
-                    $"[grey]Live: Received {args.BytesRecorded} audio bytes. Buffer size: {audioBuffer.Length} bytes.[/]");
+                if (_logAudioDataReceivedMessages) // Check the flag here
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[grey]Live: Received {args.BytesRecorded} audio bytes. Buffer size: {audioBuffer.Length} bytes.[/]");
+                }
             }
         };
 
@@ -395,22 +416,30 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
                     var tempBuffer = new byte[audioBuffer.Length];
                     await audioBuffer.ReadAsync(tempBuffer, 0,
-                        tempBuffer.Length); // TODO: do something with the audio buffer.
+                        tempBuffer.Length); 
 
                     // Clear the main buffer after copying its content
                     audioBuffer.SetLength(0);
                     audioBuffer.Seek(0, SeekOrigin.Begin);
 
-                    using var segmentStream = new MemoryStream(tempBuffer);
+                    // Convert byte[] (16-bit PCM) to float[] for Whisper.net
+                    int numSamples = tempBuffer.Length / bytesPerSample;
+                    float[] floatSamples = new float[numSamples];
+
+                    for (int i = 0; i < numSamples; i++)
+                    {
+                        short pcmSample = BitConverter.ToInt16(tempBuffer, i * bytesPerSample);
+                        floatSamples[i] = pcmSample / 32768.0f; // Normalize to [-1.0, 1.0]
+                    }
 
                     try
                     {
-                        await foreach (var segment in processor.ProcessAsync(segmentStream))
+                        // Call ProcessAsync with the float array of samples
+                        await foreach (var segment in processor.ProcessAsync(floatSamples)) 
                         {
                             var segmentText = Markup.Escape(segment.Text);
-                            transcriptionBuffer.Append(segmentText);
-                            AnsiConsole.Markup(
-                                $"[white]{segmentText}[/]"); // Continuous output, consider if new lines are needed
+                            transcriptionBuffer.Append(segmentText); 
+                            TranscribedDataAvailable?.Invoke(this, new TranscribedDataEventArgs(segment.Text)); 
                         }
                     }
                     catch (Exception ex)
@@ -420,7 +449,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
                     }
 
                     lastProcessTime =
-                        DateTime.UtcNow; // TODO: figure out if this is useful, because it's not being read anywhere.
+                        DateTime.UtcNow;
                     AnsiConsole.WriteLine(); // Add a newline after processing a chunk for cleaner output
                 }
 
@@ -433,6 +462,9 @@ public class Workspace(AppSettings appConfig) : IWorkspace
         }
         finally
         {
+            // Unsubscribe from the event when done
+            this.TranscribedDataAvailable -= HandleTranscribedDataOutput;
+
             AnsiConsole.MarkupLine("[cyan]Stopping audio capture...[/]");
             await audioCaptureService.StopCaptureAsync();
             await audioCaptureService.DisposeAsync();
@@ -442,7 +474,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
             // Optionally save the full transcription to a file
             // TODO: Stream it to a file as transcribing, perhaps in batches. Make sure it disposes gracefully and
-            //       writes it's last buffer before the program stops.
+            //       writes it's last buffer before the program stops. (This TODO is still valid for future work)
             if (Config.OutputDirectory != null && transcriptionBuffer.Length > 0)
             {
                 if (!Directory.Exists(Config.OutputDirectory))
@@ -465,6 +497,13 @@ public class Workspace(AppSettings appConfig) : IWorkspace
                 }
             }
         }
+    }
+
+    // Handler for the TranscribedDataAvailable event
+    private void HandleTranscribedDataOutput(object? sender, TranscribedDataEventArgs e)
+    {
+        // Use AnsiConsole.Write for continuous output without newlines for each segment
+        AnsiConsole.Write(Markup.Escape(e.TranscribedText)); 
     }
 
     public FileInfo[] GetAudioRecordings()
