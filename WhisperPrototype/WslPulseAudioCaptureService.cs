@@ -24,9 +24,9 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
         new Regex(@"^\s*(\d+)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$", RegexOptions.Compiled);
 
 
-    public async Task<IEnumerable<AudioDevice>> GetAvailableDevicesAsync()
+    public async Task<AudioInputDevice[]> GetAvailableDevicesAsync()
     {
-        var devices = new List<AudioDevice>();
+        var devices = new List<AudioInputDevice>();
         try
         {
             using var process = new Process
@@ -50,7 +50,7 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
             {
                 AnsiConsole.MarkupLine($"[red]pactl list sources short error (Exit Code: {process.ExitCode}): {Markup.Escape(error)}[/]");
                 AnsiConsole.MarkupLine("[yellow]Ensure 'pactl' (from pulseaudio-utils) is installed and PulseAudio is running in WSL.[/]");
-                return Enumerable.Empty<AudioDevice>();
+                return [];
             }
 
             var lines = output.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
@@ -67,7 +67,7 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
                     // Attempt to make a more friendly display name, fallback to sourceName
                     var displayName = string.IsNullOrWhiteSpace(description) || description.StartsWith("s16le") ? sourceName : $"{description} ({sourceName})";
 
-                    devices.Add(new AudioDevice(sourceName, displayName));
+                    devices.Add(new AudioInputDevice(sourceName, displayName));
                 }
             }
         }
@@ -75,14 +75,14 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
         {
             AnsiConsole.MarkupLine($"[red]Error listing audio devices with pactl: {Markup.Escape(ex.Message)}[/]");
             AnsiConsole.MarkupLine("[yellow]Ensure 'pactl' (from pulseaudio-utils) is installed and PulseAudio is running in WSL.[/]");
-            return Enumerable.Empty<AudioDevice>();
+            return [];
         }
 
         if (!devices.Any())
         {
             AnsiConsole.MarkupLine("[yellow]pactl: No capture sources found by 'pactl list sources short'. Check WSL PulseAudio setup.[/]");
         }
-        return devices;
+        return devices.ToArray();
     }
 
     public Task StartCaptureAsync(string deviceId, WaveFormat waveFormat)

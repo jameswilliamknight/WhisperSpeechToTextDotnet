@@ -3,6 +3,9 @@ using Spectre.Console;
 
 namespace WhisperPrototype;
 
+/// <summary>
+///     ⚠️ Warning, this hasn't been tested.
+/// </summary>
 public class WindowsNAudioAudioCaptureService : IAudioCaptureService
 {
     private WaveInEvent? _waveIn;
@@ -10,21 +13,21 @@ public class WindowsNAudioAudioCaptureService : IAudioCaptureService
 
     public WaveFormat? CurrentWaveFormat => _waveIn?.WaveFormat;
 
-    public Task<IEnumerable<AudioDevice>> GetAvailableDevicesAsync()
+    public Task<AudioInputDevice[]> GetAvailableDevicesAsync()
     {
-        var devices = new List<AudioDevice>();
+        var devices = new List<AudioInputDevice>();
         if (WaveInEvent.DeviceCount == 0)
         {
             AnsiConsole.MarkupLine("[yellow]NAudio: No audio input devices found.[/]");
-            return Task.FromResult(Enumerable.Empty<AudioDevice>());
+            return Task.FromResult(Array.Empty<AudioInputDevice>());
         }
 
         for (var i = 0; i < WaveInEvent.DeviceCount; i++)
         {
             var caps = WaveInEvent.GetCapabilities(i);
-            devices.Add(new AudioDevice(i.ToString(), caps.ProductName));
+            devices.Add(new AudioInputDevice(i.ToString(), caps.ProductName));
         }
-        return Task.FromResult<IEnumerable<AudioDevice>>(devices);
+        return Task.FromResult(devices.ToArray());
     }
 
     public Task StartCaptureAsync(string deviceId, WaveFormat waveFormat)

@@ -4,10 +4,18 @@ namespace WhisperPrototype;
 
 public class MenuEngine
 {
+    /// <summary>
+    ///     Provides a multiselect with <tt>Console.Spectre</tt> and delegates running a 'processor' over those items.
+    /// </summary>
+    /// <param name="itemsEnumerable">Menu items to multi-select for processing</param>
+    /// <param name="processAction">Async Action to do the 'processing'</param>
+    /// <param name="itemTypeDescription">e.g., "MP3 file" or "Model"</param>
+    /// <param name="displayConverter">A label for the type of file being processed, i.e. "MP3"</param>
+    /// <typeparam name="T">Strong typing helper for constraining Funcs</typeparam>
     public async Task SelectMultipleAndProcessAsync<T>(
         IEnumerable<T> itemsEnumerable,
         Func<IEnumerable<T>, Task> processAction,
-        string itemTypeDescription, // e.g., "MP3 file" or "Model"
+        string itemTypeDescription,
         Func<T, string> displayConverter) where T : class
     {
         AnsiConsole.MarkupLine($"\n[underline]{itemTypeDescription} Processing Stage[/]");
@@ -38,9 +46,12 @@ public class MenuEngine
         Console.ReadKey();
     }
 
+    /// <param name="items">Menu items to multi-select from</param>
+    /// <param name="itemTypeDescription">e.g., "MP3 file"</param>
+    /// <param name="displayConverter">A label for the type of file being processed, i.e. "MP3"</param>
     private async Task<List<T>> PromptChooseMultipleItemsAsync<T>(
         IEnumerable<T> items,
-        string itemTypeDescription, // e.g., "MP3 file"
+        string itemTypeDescription,
         Func<T, string> displayConverter) where T : class
     {
         AnsiConsole.MarkupLine($"[cyan]Select the {itemTypeDescription.ToLower()}(s) you want to process:[/]");

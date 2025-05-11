@@ -1,26 +1,6 @@
-using NAudio.Wave; // For WaveFormat and other NAudio types if needed by implementations
+using NAudio.Wave;
 
 namespace WhisperPrototype;
-
-/// <summary>
-/// Represents an audio input device.
-/// </summary>
-public record AudioDevice(string Id, string Name);
-
-/// <summary>
-/// Event arguments for when audio data is available.
-/// </summary>
-public class AudioDataAvailableEventArgs : EventArgs
-{
-    public byte[] Buffer { get; }
-    public int BytesRecorded { get; }
-
-    public AudioDataAvailableEventArgs(byte[] buffer, int bytesRecorded)
-    {
-        Buffer = buffer;
-        BytesRecorded = bytesRecorded;
-    }
-}
 
 /// <summary>
 /// Provides an abstraction for capturing audio from input devices.
@@ -35,8 +15,8 @@ public interface IAudioCaptureService : IAsyncDisposable
     /// <summary>
     /// Gets a list of available audio input devices.
     /// </summary>
-    /// <returns>A list of <see cref="AudioDevice"/> objects.</returns>
-    Task<IEnumerable<AudioDevice>> GetAvailableDevicesAsync();
+    /// <returns>A list of <see cref="AudioInputDevice"/> objects.</returns>
+    Task<AudioInputDevice[]> GetAvailableDevicesAsync();
 
     /// <summary>
     /// Starts capturing audio from the specified device with the given format.

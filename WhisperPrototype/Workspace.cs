@@ -7,55 +7,17 @@ using NAudio.Wave;
 
 namespace WhisperPrototype;
 
-public class Workspace : IWorkspace
+public class Workspace(AppSettings appConfig) : IWorkspace
 {
-    private string ModelPath { get; }
-    private string ModelName { get; }
-    private AppSettings Config { get; }
+    private string? ModelPath { get; set; }
+    private string? ModelName { get; set; }
 
-    public Workspace(AppSettings appConfig)
+    public bool IsInitialised => !string.IsNullOrEmpty(ModelPath) && !string.IsNullOrEmpty(ModelName);
+    
+    private AppSettings Config { get; init; } = appConfig;
+
+    public void LoadModel(FileInfo selectedModelFile)
     {
-        Config = appConfig;
-        AnsiConsole.WriteLine("Preparing and checking this device before attempting conversion.");
-
-        var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models");
-
-        if (!Directory.Exists(modelDirectory))
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] Model directory not found: [yellow]" + modelDirectory + "[/]");
-            throw new DirectoryNotFoundException($"Model directory not found: {modelDirectory}");
-        }
-
-        var modelFiles = Directory.GetFiles(modelDirectory)
-                                  .Select(f => new FileInfo(f))
-                                  .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
-                                  .OrderBy(f => f.Name)
-                                  .ToList();
-
-        if (modelFiles.Count == 0)
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] No model files found in: [yellow]" + modelDirectory + "[/]");
-            throw new FileNotFoundException($"No model files found in {modelDirectory}");
-        }
-
-        var menuEngine = new MenuEngine(); // Instantiate MenuEngine
-        var selectedModelFileTask = menuEngine.PromptChooseSingleFile(
-            modelFiles,
-            "Please select a [green]model file[/] to use:",
-            f => f.Name
-        );
-        // It's a console app, so we can block for this initial setup.
-        // Consider if async all the way up is needed for your app structure.
-        var selectedModelFile = selectedModelFileTask.GetAwaiter().GetResult();
-
-        if (selectedModelFile == null)
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] No model file was selected. Application cannot continue.[/]");
-            // A more robust application might throw an exception or have a specific exit strategy.
-            Environment.Exit(1); // Exit if no model selected
-            return; // Keep compiler happy about selectedModelFile potentially being null later
-        }
-
         ModelPath = selectedModelFile.FullName;
         ModelName = selectedModelFile.Name;
         AnsiConsole.WriteLine($"Selected model: {ModelPath}");
@@ -93,14 +55,15 @@ public class Workspace : IWorkspace
     /// <summary>
     /// Gets audio duration via ffprobe (minimal, no error handling).
     /// </summary>
-      private static TimeSpan? GetAudioDuration(string filePath)
+    private static TimeSpan? GetAudioDuration(string filePath)
     {
         // Arguments to get only the duration value
-        var ffprobeArgs = $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"";
+        var ffprobeArgs =
+            $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"";
         var startInfo = new ProcessStartInfo("ffprobe", ffprobeArgs)
         {
             RedirectStandardOutput = true, // Need this for the duration value
-            RedirectStandardError = true,  // Need this to capture potential errors
+            RedirectStandardError = true, // Need this to capture potential errors
             UseShellExecute = false,
             CreateNoWindow = true
         };
@@ -135,12 +98,14 @@ public class Workspace : IWorkspace
             }
             else if (!string.IsNullOrWhiteSpace(errorOutput)) // Log if there was an error message
             {
-                 AnsiConsole.MarkupLine($"[yellow]ffprobe stderr (duration check): {Markup.Escape(errorOutput)}[/]"); // Use MarkupLine and Escape
+                AnsiConsole.MarkupLine(
+                    $"[yellow]ffprobe stderr (duration check): {Markup.Escape(errorOutput)}[/]"); // Use MarkupLine and Escape
             }
         }
         catch (Exception ex)
         {
-             AnsiConsole.MarkupLine($"[red]Error running ffprobe for duration: {Markup.Escape(ex.Message)}[/]"); // Use MarkupLine and Escape
+            AnsiConsole.MarkupLine(
+                $"[red]Error running ffprobe for duration: {Markup.Escape(ex.Message)}[/]"); // Use MarkupLine and Escape
         }
 
 
@@ -178,11 +143,17 @@ public class Workspace : IWorkspace
                 AnsiConsole.MarkupLine($"[grey]IsWsl: Error checking /proc/version: {Markup.Escape(ex.Message)}[/]");
             }
         }
+
         return false;
     }
 
     public async Task Process(IEnumerable<FileInfo> audioFiles)
     {
+        if (!IsInitialised)
+        {
+            throw new Exception("Please initialize the workspace before processing.");
+        }
+        
         // Create Whisper factory from the model path
         using var factory = WhisperFactory.FromPath(ModelPath!);
 
@@ -203,7 +174,8 @@ public class Workspace : IWorkspace
                 Directory.CreateDirectory(Config.OutputDirectory!);
             }
 
-            var outputTxtFilePath = Path.Combine(Config.OutputDirectory!, $"{fileNameWithoutExtension}_{ModelName}.txt");
+            var outputTxtFilePath =
+                Path.Combine(Config.OutputDirectory!, $"{fileNameWithoutExtension}_{ModelName}.txt");
             var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav");
 
             AnsiConsole.MarkupLine($"\nProcessing: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
@@ -238,7 +210,8 @@ public class Workspace : IWorkspace
 
                 if (!File.Exists(tempWavFilePath))
                 {
-                     throw new FileNotFoundException($"ffmpeg failed to create the temporary WAV file: {tempWavFilePath}");
+                    throw new FileNotFoundException(
+                        $"ffmpeg failed to create the temporary WAV file: {tempWavFilePath}");
                 }
 
                 var sw = new Stopwatch();
@@ -251,6 +224,7 @@ public class Workspace : IWorkspace
                 {
                     transcription.Append(segment.Text);
                 }
+
                 sw.Stop();
 
                 var audioDuration = GetAudioDuration(tempWavFilePath);
@@ -281,7 +255,8 @@ public class Workspace : IWorkspace
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]Error processing {Markup.Escape(audioFileInfo.Name)}:[/] {Markup.Escape(ex.Message)}");
+                AnsiConsole.MarkupLine(
+                    $"[red]Error processing {Markup.Escape(audioFileInfo.Name)}:[/] {Markup.Escape(ex.Message)}");
             }
             finally
             {
@@ -297,6 +272,11 @@ public class Workspace : IWorkspace
 
     public async Task StartLiveTranscriptionAsync()
     {
+        if (!IsInitialised)
+        {
+            throw new Exception("Please initialize the workspace before processing.");
+        }
+        
         AnsiConsole.MarkupLine("[cyan]Starting live transcription...[/]");
 
         // Task 2.3: Initialise Whisper.net for Streaming
@@ -319,7 +299,7 @@ public class Workspace : IWorkspace
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             audioCaptureService = new WindowsNAudioAudioCaptureService();
-             AnsiConsole.MarkupLine("[blue]Selected WindowsNAudioAudioCaptureService.[/]");
+            AnsiConsole.MarkupLine("[blue]Selected WindowsNAudioAudioCaptureService.[/]");
         }
         else if (IsWsl())
         {
@@ -334,7 +314,8 @@ public class Workspace : IWorkspace
 
         if (audioCaptureService == null)
         {
-            AnsiConsole.MarkupLine("[red]Error: Could not determine or initialize an audio capture service for the current OS.[/]");
+            AnsiConsole.MarkupLine(
+                "[red]Error: Could not determine or initialize an audio capture service for the current OS.[/]");
             return;
         }
         // --- End Audio Capture Service Setup ---
@@ -342,16 +323,17 @@ public class Workspace : IWorkspace
         var availableDevices = (await audioCaptureService.GetAvailableDevicesAsync()).ToList();
         if (!availableDevices.Any())
         {
-            AnsiConsole.MarkupLine("[yellow]No audio input devices found. Please ensure a microphone is connected and configured.[/]");
+            AnsiConsole.MarkupLine(
+                "[yellow]No audio input devices found. Please ensure a microphone is connected and configured.[/]");
             await audioCaptureService.DisposeAsync();
             return;
         }
 
-        AudioDevice selectedDevice;
+        AudioInputDevice selectedInputDevice;
         if (availableDevices.Count == 1)
         {
-            selectedDevice = availableDevices.First();
-            AnsiConsole.MarkupLine($"[green]Using default device: {Markup.Escape(selectedDevice.Name)}[/]");
+            selectedInputDevice = availableDevices.First();
+            AnsiConsole.MarkupLine($"[green]Using default device: {Markup.Escape(selectedInputDevice.Name)}[/]");
         }
         else
         {
@@ -361,16 +343,17 @@ public class Workspace : IWorkspace
                 .AddChoices(availableDevices.Select(d => d.Name));
 
             var selectedDisplayName = await AnsiConsole.PromptAsync(selectionPrompt);
-            selectedDevice = availableDevices.First(d => d.Name == selectedDisplayName);
-            AnsiConsole.MarkupLine($"[green]Using device: {Markup.Escape(selectedDevice.Name)}[/]");
+            selectedInputDevice = availableDevices.First(d => d.Name == selectedDisplayName);
+            AnsiConsole.MarkupLine($"[green]Using device: {Markup.Escape(selectedInputDevice.Name)}[/]");
         }
 
         var audioBuffer = new MemoryStream();
         var transcriptionBuffer = new StringBuilder();
         var stopRequested = false;
-        
 
-        var lastProcessTime = DateTime.UtcNow; // TODO: figure out if this is useful, because it's not being read anywhere.
+
+        var lastProcessTime =
+            DateTime.UtcNow; // TODO: figure out if this is useful, because it's not being read anywhere.
         // Target 5 seconds of audio data before processing. 16kHz, 16-bit mono = 32,000 bytes/sec.
         // So, 5 seconds = 160,000 bytes. This is a starting point.
         const int bytesPerSecond = 16000 * 2 * 1; // SampleRate * (BitsPerSample/8) * Channels
@@ -382,13 +365,14 @@ public class Workspace : IWorkspace
             if (args.BytesRecorded > 0)
             {
                 await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded);
-                AnsiConsole.MarkupLine($"[grey]Live: Received {args.BytesRecorded} audio bytes. Buffer size: {audioBuffer.Length} bytes.[/]");
+                AnsiConsole.MarkupLine(
+                    $"[grey]Live: Received {args.BytesRecorded} audio bytes. Buffer size: {audioBuffer.Length} bytes.[/]");
             }
         };
 
         try
         {
-            await audioCaptureService.StartCaptureAsync(selectedDevice.Id, desiredFormat);
+            await audioCaptureService.StartCaptureAsync(selectedInputDevice.Id, desiredFormat);
             AnsiConsole.MarkupLine("[green]Audio capture started. Press [yellow]ESC[/] to stop.[/]");
 
             // Main loop for checking buffer and stop condition
@@ -410,7 +394,8 @@ public class Workspace : IWorkspace
                     audioBuffer.Seek(0, SeekOrigin.Begin); // Reset stream position for reading
 
                     var tempBuffer = new byte[audioBuffer.Length];
-                    await audioBuffer.ReadAsync(tempBuffer, 0, tempBuffer.Length); // TODO: do something with the audio buffer.
+                    await audioBuffer.ReadAsync(tempBuffer, 0,
+                        tempBuffer.Length); // TODO: do something with the audio buffer.
 
                     // Clear the main buffer after copying its content
                     audioBuffer.SetLength(0);
@@ -424,7 +409,8 @@ public class Workspace : IWorkspace
                         {
                             var segmentText = Markup.Escape(segment.Text);
                             transcriptionBuffer.Append(segmentText);
-                            AnsiConsole.Markup($"[white]{segmentText}[/]"); // Continuous output, consider if new lines are needed
+                            AnsiConsole.Markup(
+                                $"[white]{segmentText}[/]"); // Continuous output, consider if new lines are needed
                         }
                     }
                     catch (Exception ex)
@@ -432,7 +418,9 @@ public class Workspace : IWorkspace
                         AnsiConsole.MarkupLine($"[red]Error during transcription: {Markup.Escape(ex.Message)}[/]");
                         // Optionally, decide if we should stop or continue
                     }
-                    lastProcessTime = DateTime.UtcNow; // TODO: figure out if this is useful, because it's not being read anywhere.
+
+                    lastProcessTime =
+                        DateTime.UtcNow; // TODO: figure out if this is useful, because it's not being read anywhere.
                     AnsiConsole.WriteLine(); // Add a newline after processing a chunk for cleaner output
                 }
 
@@ -461,12 +449,12 @@ public class Workspace : IWorkspace
                 {
                     Directory.CreateDirectory(Config.OutputDirectory);
                 }
-                
+
                 var transcriptPath = Path.Combine(
                     Config.OutputDirectory,
                     $"LiveTranscript_{DateTime.Now:yyyyMMddHHmmss}_{ModelName}.txt");
-                
-                try 
+
+                try
                 {
                     await File.WriteAllTextAsync(transcriptPath, transcriptionBuffer.ToString());
                     AnsiConsole.MarkupLine($"[green]Full transcript saved to: {Markup.Escape(transcriptPath)}[/]");
@@ -483,18 +471,21 @@ public class Workspace : IWorkspace
     {
         if (Config.InputDirectory == null || !Directory.Exists(Config.InputDirectory))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Input directory '{Markup.Escape(Config.InputDirectory ?? "<null>")}' not found or not configured.");
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Input directory '{Markup.Escape(Config.InputDirectory ?? "<null>")}' not found or not configured.");
             return [];
         }
 
         // Still looking for .mp3 files specifically, but method name is more generic for future expansion.
-        var audioFilePaths = Directory.GetFiles(Config.InputDirectory, "*.mp3"); 
+        var audioFilePaths = Directory.GetFiles(Config.InputDirectory, "*.mp3");
         var audioFileInfos = audioFilePaths.Select(path => new FileInfo(path)).ToList();
 
         if (!audioFileInfos.Any())
         {
-            AnsiConsole.MarkupLine($"[yellow]No audio recordings (*.mp3) found in {Markup.Escape(Config.InputDirectory)}.[/]");
-            AnsiConsole.MarkupLine("Please place your audio recording files in this directory and run the application again.");
+            AnsiConsole.MarkupLine(
+                $"[yellow]No audio recordings (*.mp3) found in {Markup.Escape(Config.InputDirectory)}.[/]");
+            AnsiConsole.MarkupLine(
+                "Please place your audio recording files in this directory and run the application again.");
             return [];
         }
 
