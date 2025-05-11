@@ -361,7 +361,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
         var stopRequested = false;
 
         // Configuration for audio chunking
-        const float desiredChunkDurationSeconds = 0.75f; // Duration of audio to buffer before processing. Tune for responsiveness vs. transcription quality.
+        const float desiredChunkDurationSeconds = 2.0f; // Duration of audio to buffer before processing. Tune for responsiveness vs. transcription quality.
         const int bytesPerSample = 2; // 16-bit audio
         const int channels = 1;       // Mono audio
         const int sampleRate = 16000; // 16kHz
@@ -428,12 +428,30 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
                     try
                     {
+                        AnsiConsole.MarkupLine("[yellow]DEBUG: About to call processor.ProcessAsync...[/]");
+                        bool segmentReceived = false;
                         // Call ProcessAsync with the float array of samples
                         await foreach (var segment in processor.ProcessAsync(floatSamples)) 
                         {
-                            var segmentText = Markup.Escape(segment.Text);
-                            transcriptionBuffer.Append(segmentText); 
-                            TranscribedDataAvailable?.Invoke(this, new TranscribedDataEventArgs(segment.Text)); 
+                            segmentReceived = true;
+                            var segmentTextForLog = segment.Text ?? "<null_or_empty>";
+                            AnsiConsole.MarkupLine($"[yellow]DEBUG: Segment received from Whisper: '{Markup.Escape(segmentTextForLog)}' (Length: {segmentTextForLog.Length})[/]");
+                            
+                            if (!string.IsNullOrWhiteSpace(segment.Text))
+                            {
+                                var segmentText = Markup.Escape(segment.Text); // Escape for transcriptionBuffer too
+                                transcriptionBuffer.Append(segmentText); 
+                                AnsiConsole.MarkupLine("[yellow]DEBUG: Invoking TranscribedDataAvailable event...[/]");
+                                TranscribedDataAvailable?.Invoke(this, new TranscribedDataEventArgs(segment.Text)); 
+                            }
+                            else
+                            {
+                                AnsiConsole.MarkupLine("[yellow]DEBUG: Segment text is null or whitespace, not invoking event.[/]");
+                            }
+                        }
+                        if (!segmentReceived)
+                        {
+                            AnsiConsole.MarkupLine("[yellow]DEBUG: processor.ProcessAsync completed without yielding any segments.[/]");
                         }
                     }
                     catch (Exception ex)
@@ -496,6 +514,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
     // Handler for the TranscribedDataAvailable event
     private void HandleTranscribedDataOutput(object? sender, TranscribedDataEventArgs e)
     {
+        AnsiConsole.MarkupLine($"[yellow]DEBUG: HandleTranscribedDataOutput called with text: '{Markup.Escape(e.TranscribedText)}'[/]");
         // Use AnsiConsole.Write for continuous output without newlines for each segment
         AnsiConsole.Write(Markup.Escape(e.TranscribedText)); 
     }
