@@ -7,12 +7,6 @@ using NAudio.Wave;
 
 namespace WhisperPrototype;
 
-// Reinstating TranscribedDataEventArgs
-public class TranscribedDataEventArgs(string transcribedText) : EventArgs
-{
-    public string TranscribedText { get; } = transcribedText;
-}
-
 public class Workspace(AppSettings appConfig) : IWorkspace
 {
     private string? ModelPath { get; set; }
@@ -26,7 +20,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
     public event EventHandler<TranscribedDataEventArgs>? TranscribedDataAvailable;
 
     // Flag to control verbose audio data logging
-    private bool _logAudioDataReceivedMessages = true; // Set to false to disable
+    private readonly bool _logAudioDataReceivedMessages = false; // Set to false to disable
 
     public void LoadModel(FileInfo selectedModelFile)
     {
