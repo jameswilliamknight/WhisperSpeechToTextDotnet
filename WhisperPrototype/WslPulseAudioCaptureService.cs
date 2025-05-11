@@ -5,6 +5,11 @@ using Spectre.Console;
 
 namespace WhisperPrototype;
 
+/// <summary>
+///     Consider making this a singleton with a semaphore, as we will be creating a web server soon, with only one audio
+///     input device - we will need to manage the turns of requests - send a Results object back if device is already in
+///     use.
+/// </summary>
 public class WslPulseAudioCaptureService : IAudioCaptureService
 {
     private Process? _parecProcess;
@@ -14,14 +19,16 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
 
     public event EventHandler<AudioDataAvailableEventArgs>? AudioDataAvailable;
     public WaveFormat? CurrentWaveFormat => _currentWaveFormat;
-
-    // Regex to parse output of `pactl list sources short`
-    // Example line: 1    alsa_input.pci-0000_01_00.1.analog-stereo    module-alsa-card.c    s16le 2ch 44100Hz    SUSPENDED
-    // We are interested in the second field (name/ID) and often the fifth (description part of format) can be a human-readable name.
-    // Simpler approach: use the 'name' as ID and try to parse a description if available.
-    // Focusing on the source name as ID: field 1 (index) and field 2 (name)
-    private static readonly Regex PactlDeviceRegex = 
-        new Regex(@"^\s*(\d+)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$", RegexOptions.Compiled);
+    
+    /// <summary>
+    ///    Regex to parse output of `pactl list sources short`
+    ///    Example line: 1    alsa_input.pci-0000_01_00.1.analog-stereo    module-alsa-card.c    s16le 2ch 44100Hz    SUSPENDED
+    ///    We are interested in the second field (name/ID) and often the fifth (description part of format) can be a human-readable name.
+    ///    Simpler approach: use the 'name' as ID and try to parse a description if available.
+    ///    Focusing on the source name as ID: field 1 (index) and field 2 (name)
+    /// </summary>
+    private static Regex PactlDeviceRegex = 
+        new(@"^\s*(\d+)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$", RegexOptions.Compiled);
 
 
     public async Task<AudioInputDevice[]> GetAvailableDevicesAsync()
@@ -29,17 +36,15 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
         var devices = new List<AudioInputDevice>();
         try
         {
-            using var process = new Process
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "pactl",
-                    Arguments = "list sources short",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
+                FileName = "pactl",
+                Arguments = "list sources short",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
             };
             process.Start();
             var output = await process.StandardOutput.ReadToEndAsync();
@@ -53,7 +58,7 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
                 return [];
             }
 
-            var lines = output.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            var lines = output.Split([Environment.NewLine], StringSplitOptions.RemoveEmptyEntries);
             foreach (var line in lines)
             {
                 var match = PactlDeviceRegex.Match(line);
@@ -100,35 +105,34 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
 
-        // Command: parec --device={deviceId} --format=s16le --rate=16000 --channels=1 --raw
-        // Note: parec uses --format=s16ne for native-endian or s16le/s16be. Whisper expects little-endian.
-        _parecProcess = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "parec",
-                Arguments = $"--device={deviceId} --format=s16le --rate=16000 --channels=1 --raw",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            },
-            EnableRaisingEvents = true
-        };
 
         try
         {
-            _parecProcess.Start();
             AnsiConsole.MarkupLine($"[green]parec (WSL): Process started for device {deviceId}.[/]");
 
             _audioReadingTask = Task.Run(async () =>
             {
                 try
                 {
+                    // Command: parec --device={deviceId} --format=s16le --rate=16000 --channels=1 --raw
+                    // Note: parec uses --format=s16ne for native-endian or s16le/s16be. Whisper expects little-endian.
+                    _parecProcess = new Process();
+                    _parecProcess.StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "parec",
+                        Arguments = $"--device={deviceId} --format=s16le --rate=16000 --channels=1 --raw",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    _parecProcess.EnableRaisingEvents = true;
+                    
                     var bufferSize = _currentWaveFormat.BlockAlign * 2048; // Approx 0.25s of audio (16000*2*0.25 = 8000, BlockAlign=2)
                     var buffer = new byte[bufferSize];
                     AnsiConsole.MarkupLine($"[grey]parec (WSL): Reading audio stream (buffer size: {bufferSize} bytes)...[/]");
-                    using var outputStream = _parecProcess.StandardOutput.BaseStream;
+                    _parecProcess.Start();
+                    await using var outputStream = _parecProcess.StandardOutput.BaseStream;
                     while (!token.IsCancellationRequested)
                     {
                         var bytesRead = await outputStream.ReadAsync(buffer, 0, buffer.Length, token);
