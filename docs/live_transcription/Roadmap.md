@@ -1,4 +1,4 @@
-[< Main README](../../README.md)  ⚡  [Implementation Details](./Details.md)
+< [Implementation Details](./Details.md)  ⚡  [Home](../../README.md)
 
 # Live Transcription Feature - Roadmap & Future Enhancements
 
@@ -20,5 +20,5 @@ These are items for consideration once the basic live transcription is functiona
 -   [ ] **Improve UI/UX:**
     -   [ ] Clearer status indicators (listening, processing, paused, error).
     -   [ ] Potentially show interim "unconfirmed" results that get refined as more audio comes in (a more advanced technique).
-    -   [ ] Option to save the full live transcript.
+    -   [x] Option to save the full live transcript. ✅ DONE (Implemented in `Workspace.cs`, saves on completion)
     -   [ ] **Configurable Language Selection:** Allow users to choose the transcription language (e.g., "en", "auto") for live transcription, possibly via a startup prompt or a setting in `appsettings.json`.

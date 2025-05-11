@@ -1,41 +1,37 @@
 [<- Back to Main README](../../README.md)
 
-# Live Transcription Feature Plan
+# Live Transcription Feature
 
-This document outlines the high-level tasks required to implement the live transcription feature in the WhisperPrototype application.
+This section provides documentation for the live transcription feature implemented in the WhisperPrototype application. This feature allows for real-time audio capture from a microphone, processing via Whisper.net, and continuous display of the transcribed text.
 
-## Task Breakdown
+## Feature Documentation
 
-1.  **Modify `Program.cs` for Menu Integration**
+To understand the live transcription feature in detail, please refer to the following documents:
 
-    -   Add a "Live Transcription" option to the main menu.
-    -   Handle the new menu choice to initiate the live transcription process.
+-   **[Implementation Overview](./Details.md):**
+    Describes the core architecture, how the feature works, key components like `Workspace.cs` and the `IAudioCaptureService` pattern (including `WslPulseAudioCaptureService.cs`), and the data flow from audio capture to transcribed text.
 
-2.  **Implement Core Live Transcription Logic (in `Workspace.cs`)**
+-   **[Future Enhancements & Roadmap](./Roadmap.md):**
+    Outlines potential future improvements and advanced capabilities planned for this feature.
 
-    -   **Task 2.1:** Develop a new method (e.g., `StartLiveTranscriptionAsync`).
-    -   **Task 2.2:** Initialise Audio Input (NAudio).
-        -   Select audio input device.
-        -   Configure and start audio capture.
-    -   **Task 2.3:** Initialise Whisper.net for Streaming.
-        -   Load and configure the Whisper model and processor.
-    -   **Task 2.4:** Implement Real-time Audio Processing Loop.
-        -   Capture audio data from NAudio.
-        -   Buffer audio data into suitable chunks for Whisper.
-        -   Process audio chunks with Whisper.net.
-        -   Display transcribed segments in real-time.
-    -   **Task 2.5:** Implement Stop Mechanism.
-        -   Allow the user to gracefully stop the live transcription.
-        -   Ensure proper disposal of resources (NAudio, Whisper.net).
-    -   **Task 2.6:** Basic Error Handling.
-        -   Implement error handling for audio device issues and transcription errors.
+-   **[Troubleshooting WSL Audio](./Troubleshooting.md):**
+    Provides guidance for diagnosing and resolving common issues related to microphone input when using this feature within a Windows Subsystem for Linux (WSL) environment, particularly with PulseAudio.
 
-3.  **Refinement and Advanced Features (Future Iterations)**
-    -   Explore advanced buffering (e.g., sliding window with overlap).
-    -   Investigate Voice Activity Detection (VAD) for smarter chunking.
-    -   Implement more robust text merging for overlapping transcriptions if used.
-    -   Improve UI/UX for live feedback and controls.
+## Original Plan (Historical)
 
-## Associated Detailed Document
+The initial high-level plan for implementing this feature involved several key stages:
 
-For detailed explanations, rationale, and implementation considerations for each task, please refer to [Live Transcription Implementation Details](./Details.md).
+1.  **Menu Integration in `Program.cs`:**
+    -   A "Live Transcription" option was added to the main menu.
+    -   Logic was implemented to handle this choice and initiate the live transcription process.
+2.  **Core Live Transcription Logic in `Workspace.cs`:**
+    -   The `StartLiveTranscriptionAsync` method was developed.
+    -   Audio input was initialized using platform-specific services (NAudio for Windows, `parec` via `WslPulseAudioCaptureService` for WSL, and `arecord` via `BareMetalAlsaAudioCaptureService` for Linux).
+    -   Whisper.net was initialized for streaming.
+    -   A real-time audio processing loop was implemented to handle audio capture, buffering, processing with Whisper.net, and displaying transcribed segments.
+    -   A mechanism for the user to stop transcription (ESC key) was added.
+    -   Basic error handling was included.
+3.  **Refinements and Advanced Features:**
+    -   Further refinements and advanced features were planned and are now tracked in the [Roadmap](./Roadmap.md).
+
+_For the current detailed workings and architecture, please see the [Implementation Overview](./Details.md)._
