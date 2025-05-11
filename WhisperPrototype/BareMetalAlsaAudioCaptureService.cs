@@ -1,17 +1,11 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using NAudio.Wave;
 using Spectre.Console;
 
 namespace WhisperPrototype;
 
-public class LinuxArecordAudioCaptureService : IAudioCaptureService
+public class BareMetalAlsaAudioCaptureService : IAudioCaptureService // Renamed class
 {
     private Process? _arecordProcess;
     private CancellationTokenSource? _cancellationTokenSource;
@@ -51,7 +45,7 @@ public class LinuxArecordAudioCaptureService : IAudioCaptureService
             if (process.ExitCode != 0 || !string.IsNullOrWhiteSpace(error))
             {
                 AnsiConsole.MarkupLine($"[red]arecord -l error (Exit Code: {process.ExitCode}): {Markup.Escape(error)}[/]");
-                AnsiConsole.MarkupLine("[yellow]Ensure 'arecord' (from alsa-utils) is installed and accessible.[/]");
+                AnsiConsole.MarkupLine("[yellow]Ensure 'arecord' (from alsa-utils) is installed and accessible for bare metal Linux.[/]");
                 return Enumerable.Empty<AudioDevice>();
             }
 
@@ -73,14 +67,14 @@ public class LinuxArecordAudioCaptureService : IAudioCaptureService
         }
         catch (Exception ex) // Catches issues like arecord not found
         {
-            AnsiConsole.MarkupLine($"[red]Error listing audio devices with arecord: {Markup.Escape(ex.Message)}[/]");
-            AnsiConsole.MarkupLine("[yellow]Ensure 'arecord' (from alsa-utils) is installed and accessible.[/]");
+            AnsiConsole.MarkupLine($"[red]Error listing audio devices with arecord (bare metal): {Markup.Escape(ex.Message)}[/]");
+            AnsiConsole.MarkupLine("[yellow]Ensure 'arecord' (from alsa-utils) is installed.[/]");
             return Enumerable.Empty<AudioDevice>();
         }
 
         if (!devices.Any())
         {
-            AnsiConsole.MarkupLine("[yellow]arecord: No capture devices found by 'arecord -l'.[/]");
+            AnsiConsole.MarkupLine("[yellow]arecord (bare metal): No capture devices found by 'arecord -l'.[/]");
         }
         return devices;
     }
@@ -91,10 +85,9 @@ public class LinuxArecordAudioCaptureService : IAudioCaptureService
         {
             throw new InvalidOperationException("Capture is already in progress.");
         }
-        // Validate WaveFormat for arecord settings
         if (waveFormat.SampleRate != 16000 || waveFormat.BitsPerSample != 16 || waveFormat.Channels != 1)
         {
-            throw new ArgumentException("arecord service currently only supports 16kHz, 16-bit, Mono PCM format.", nameof(waveFormat));
+            throw new ArgumentException("arecord service (bare metal) currently only supports 16kHz, 16-bit, Mono PCM format.", nameof(waveFormat));
         }
         _currentWaveFormat = waveFormat;
 
@@ -112,60 +105,56 @@ public class LinuxArecordAudioCaptureService : IAudioCaptureService
                 UseShellExecute = false,
                 CreateNoWindow = true
             },
-            EnableRaisingEvents = true // Important for Process.Exited event if used later
+            EnableRaisingEvents = true
         };
 
         try
         {
             _arecordProcess.Start();
-            AnsiConsole.MarkupLine($"[green]arecord: Process started for device {deviceId}.[/]");
+            AnsiConsole.MarkupLine($"[green]arecord (bare metal): Process started for device {deviceId}.[/]");
 
             _audioReadingTask = Task.Run(async () =>
             {
                 try
                 {
-                    // Buffer size: e.g., 16000 (samples/sec) * 2 (bytes/sample) * 0.1 (100ms) = 3200 bytes
-                    // Or a common multiple like 4096. BlockAlign for 16bit mono is 2.
-                    var bufferSize = _currentWaveFormat.BlockAlign * 2048; // Approx 0.25s of audio
+                    var bufferSize = _currentWaveFormat.BlockAlign * 2048;
                     var buffer = new byte[bufferSize];
                     
-                    AnsiConsole.MarkupLine($"[grey]arecord: Reading audio stream (buffer size: {bufferSize} bytes)...[/]");
+                    AnsiConsole.MarkupLine($"[grey]arecord (bare metal): Reading audio stream (buffer size: {bufferSize} bytes)...[/]");
                     using var outputStream = _arecordProcess.StandardOutput.BaseStream;
                     while (!token.IsCancellationRequested)
                     {
                         var bytesRead = await outputStream.ReadAsync(buffer, 0, buffer.Length, token);
                         if (bytesRead > 0)
                         {
-                            // Create a copy of the relevant part of the buffer for the event args
                             var eventBuffer = new byte[bytesRead];
                             Array.Copy(buffer, 0, eventBuffer, 0, bytesRead);
                             AudioDataAvailable?.Invoke(this, new AudioDataAvailableEventArgs(eventBuffer, bytesRead));
                         }
-                        else if (bytesRead == 0) // End of stream
+                        else if (bytesRead == 0)
                         {
-                            AnsiConsole.MarkupLine("[yellow]arecord: Audio stream ended.[/]");
+                            AnsiConsole.MarkupLine("[yellow]arecord (bare metal): Audio stream ended.[/]");
                             break; 
                         }
                     }
                 }
                 catch (OperationCanceledException)
                 {
-                    AnsiConsole.MarkupLine("[grey]arecord: Audio reading task canceled.[/]");
+                    AnsiConsole.MarkupLine("[grey]arecord (bare metal): Audio reading task canceled.[/]");
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[red]arecord: Error reading audio stream: {Markup.Escape(ex.Message)}[/]");
+                    AnsiConsole.MarkupLine($"[red]arecord (bare metal): Error reading audio stream: {Markup.Escape(ex.Message)}[/]");
                 }
                 finally
                 {
-                    AnsiConsole.MarkupLine("[grey]arecord: Audio reading task finished.[/]");
+                    AnsiConsole.MarkupLine("[grey]arecord (bare metal): Audio reading task finished.[/]");
                 }
             }, token);
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]arecord: Failed to start process - {Markup.Escape(ex.Message)}[/]");
-            AnsiConsole.MarkupLine("[yellow]Ensure 'arecord' is installed, device ID is correct, and mic is not in use.[/]");
+            AnsiConsole.MarkupLine($"[red]arecord (bare metal): Failed to start process - {Markup.Escape(ex.Message)}[/]");
             _arecordProcess?.Dispose();
             _arecordProcess = null;
             _cancellationTokenSource?.Dispose();
@@ -188,38 +177,38 @@ public class LinuxArecordAudioCaptureService : IAudioCaptureService
             {
                 if (!_arecordProcess.HasExited)
                 {
-                    AnsiConsole.MarkupLine("[grey]arecord: Attempting to stop process...[/]");
-                    _arecordProcess.Kill(true); // true to kill entire process tree
-                    await _arecordProcess.WaitForExitAsync(CancellationToken.None); // Wait briefly // TimeSpan.FromSeconds(5)
+                    AnsiConsole.MarkupLine("[grey]arecord (bare metal): Attempting to stop process...[/]");
+                    _arecordProcess.Kill(true);
+                    await _arecordProcess.WaitForExitAsync(CancellationToken.None);
                     if (!_arecordProcess.HasExited)
                     {
-                         AnsiConsole.MarkupLine("[yellow]arecord: Process did not exit gracefully after kill signal. It might be stuck.[/]");
+                         AnsiConsole.MarkupLine("[yellow]arecord (bare metal): Process did not exit gracefully after kill signal.[/]");
                     }
                 }
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]arecord: Exception while stopping process: {Markup.Escape(ex.Message)}[/]");
+                AnsiConsole.MarkupLine($"[red]arecord (bare metal): Exception while stopping process: {Markup.Escape(ex.Message)}[/]");
             }
             finally
             {
                 _arecordProcess.Dispose();
                 _arecordProcess = null;
-                AnsiConsole.MarkupLine("[cyan]arecord: Process stopped and disposed.[/]");
+                AnsiConsole.MarkupLine("[cyan]arecord (bare metal): Process stopped and disposed.[/]");
             }
         }
 
         if (_audioReadingTask != null)
         {
-            AnsiConsole.MarkupLine("[grey]arecord: Waiting for audio reading task to complete...[/]");
+            AnsiConsole.MarkupLine("[grey]arecord (bare metal): Waiting for audio reading task to complete...[/]");
             try
             {
-                await _audioReadingTask; // Wait for the task to finish
+                await _audioReadingTask;
             }
-            catch (OperationCanceledException) { /* Expected if cancelled */ }
+            catch (OperationCanceledException) { /* Expected */ }
             catch (Exception ex) 
             {
-                AnsiConsole.MarkupLine($"[red]arecord: Exception during audio reading task completion: {Markup.Escape(ex.Message)}[/]");
+                AnsiConsole.MarkupLine($"[red]arecord (bare metal): Exception during audio reading task completion: {Markup.Escape(ex.Message)}[/]");
             }
             _audioReadingTask = null;
         }
@@ -230,7 +219,6 @@ public class LinuxArecordAudioCaptureService : IAudioCaptureService
         await StopCaptureAsync();
         _cancellationTokenSource?.Dispose();
         _cancellationTokenSource = null;
-        AnsiConsole.MarkupLine("[grey]arecord: Service disposed.[/]");
-        // GC.SuppressFinalize(this);
+        AnsiConsole.MarkupLine("[grey]arecord (bare metal): Service disposed.[/]");
     }
 } 

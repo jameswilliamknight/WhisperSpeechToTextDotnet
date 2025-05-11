@@ -1,25 +1,39 @@
-# Setup Guide
+## About
 
-This document shows you how I created this project
+Experimental project for using .NET to convert speech to text, and writing modular code to help reuse.
 
-## Environment
+I wanted to build it so I could one day add something to my Raspberry Pi `raspotify` devices, and add smart voice assistant capabilities. That would then entail an client-server architecture, and some kind of deployment model. Alternatively or additionally this project will acquire a web server to provide an easy to use React web interface.
+
+This project is open source to expand my portfolio of work. I didn't know what kind of license to add, so it's probably going to change.
+
+
+## Setup Guide
+
+### Environment
 
 _Example uses Ubuntu on WSL on Windows 11, but the same will need to be applied to a Raspberry Pi 5 (8GB, 16GB)_
 
 ```sh
 sudo apt update
-sudo apt install ffmpeg alsa-utils
+sudo apt install ffmpeg
 
+# Bare Metal
+sudo apt install alsa-utils
+
+## WSL/Ubuntu
+sudo apt install pulseaudio-utils
 ```
 
-## NuGet
+## 🛠️ Troubleshooting
 
-Install these packages
+For guidance on common issues, please refer to the relevant troubleshooting document:
 
--   `Whisper.net`
--   `NAudio`
+- **Windows Audio (NAudio):** [./docs/troubleshooting/WindowsAudio.md](./docs/troubleshooting/WindowsAudio.md) _(Placeholder - to be created if detailed steps are needed)_
+- **Bare-Metal Linux Audio (ALSA / `arecord`):** [./docs/troubleshooting/BareMetalLinuxAudio.md](./docs/troubleshooting/BareMetalLinuxAudio.md) _(Placeholder - to be created if detailed steps are needed)_
+- **WSL Audio (PulseAudio / `parec` - for Live Transcription):** [./docs/live_transcription/Troubleshooting.md](./docs/live_transcription/Troubleshooting.md)
 
-## Models - Download
+
+### Models - Download
 
 https://github.com/ggml-org/whisper.cpp/blob/master/models/README.md
 
@@ -56,7 +70,7 @@ mkdir models
 mv ggml-large-v3.bin ./models/ggml-large-v3.bin
 ```
 
-### Verify Checksum
+#### Verify Checksum
 
 ```sh
 sha1sum ./models/ggml-large-v3.bin
@@ -64,17 +78,21 @@ sha1sum ./models/ggml-large-v3.bin
 # ad82bf6a9043ceed055076d0fd39f5f186ff8062  ./models/ggml-large-v3.bin
 ```
 
-## 📝 Feature Development Plans
 
--   **Live Transcription Feature:**
-    -   [High-Level Plan](./docs/live_transcription/README.md)
-    -   [Implementation Details](./docs/live_transcription/Details.md)
+### 📝 Feature Development Plans
 
--   **Model Management Features**
-    -   [High-Level Plan](./docs/model_management/README.md)
-    -   [Roadmap](./docs/model_management/Roadmap.md)
+#### Live Transcription Feature
 
-# 💡 Similar Projects
+- [High-Level Plan](./docs/live_transcription/README.md)
+- [Implementation Details](./docs/live_transcription/Details.md)
 
--   **`ufal/whisper_streaming`**: [https://github.com/ufal/whisper_streaming](https://github.com/ufal/whisper_streaming)
-    -   A Python project demonstrating real-time transcription with Whisper. It employs techniques like Voice Activity Detection (VAD), adaptive latency, buffer trimming based on segments/sentences, and a local agreement policy to confirm transcribed segments. These are concepts that could be valuable for a robust C# live transcription implementation.
+#### Model Management Features
+
+- [High-Level Plan](./docs/model_management/README.md)
+- [Roadmap](./docs/model_management/Roadmap.md)
+
+
+## 💡 Similar Projects
+
+- **`ufal/whisper_streaming`**: [https://github.com/ufal/whisper_streaming](https://github.com/ufal/whisper_streaming)
+    - A Python project demonstrating real-time transcription with Whisper. It employs techniques like Voice Activity Detection (VAD), adaptive latency, buffer trimming based on segments/sentences, and a local agreement policy to confirm transcribed segments. These are concepts that could be valuable for a robust C# live transcription implementation.

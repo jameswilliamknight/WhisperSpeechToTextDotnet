@@ -1,31 +1,14 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices; // Added for OS detection
+using System.Runtime.InteropServices;
 using System.Text;
 using Spectre.Console;
 using Whisper.net;
-using NAudio.Wave; // Added for NAudio
+using NAudio.Wave;
 
 namespace WhisperPrototype;
 
 public class Workspace : IWorkspace
 {
-    // Google Drive, Test recordings for longitudinally benchmarking, i.e. same audio being put through various tests.
-    // private/media/Recordings/Audio-Test
-
-    // Syncthing, voice recordings from mobile phone.
-    // Voice Recordings/Voice Journal
-
-    // The directory where your MP3 files will be placed.
-    // This path is relative to the environment where the app runs (WSL or Pi).
-    // const string InputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Inputs";
-
-    // The directory where the text output files will be saved.
-    // We'll save them in the same directory as the input file for simplicity here.
-    // const string OutputDirectory = "/home/james/src/WhisperSpeechToTextDotnet/WhisperPrototype/Outputs";
-
-    /// <summary>
-    ///     Set in constructor
-    /// </summary>
     private string ModelPath { get; }
     private string ModelName { get; }
     private AppSettings Config { get; }
@@ -164,6 +147,39 @@ public class Workspace : IWorkspace
         return null; // Return null if parsing fails or process error
     }
 
+    private static bool IsWsl()
+    {
+        // Check for common WSL environment variables
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_DISTRO_NAME")) ||
+            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_INTEROP")) ||
+            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSLENV")))
+        {
+            return true;
+        }
+
+        // Fallback: Check /proc/version for WSL indicators (Linux specific)
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            try
+            {
+                if (File.Exists("/proc/version"))
+                {
+                    string versionInfo = File.ReadAllText("/proc/version");
+                    if (versionInfo.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) || 
+                        versionInfo.Contains("WSL", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex) 
+            {
+                // Ignore errors reading /proc/version, e.g. permission denied, and proceed to default Linux behavior
+                AnsiConsole.MarkupLine($"[grey]IsWsl: Error checking /proc/version: {Markup.Escape(ex.Message)}[/]");
+            }
+        }
+        return false;
+    }
 
     public async Task Process(IEnumerable<FileInfo> mp3Files)
     {
@@ -287,8 +303,16 @@ public class Workspace : IWorkspace
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            AnsiConsole.MarkupLine("[green]Linux platform detected. Using arecord for audio capture.[/]");
-            audioCaptureService = new LinuxArecordAudioCaptureService(); 
+            if (IsWsl())
+            {
+                AnsiConsole.MarkupLine("[green]WSL (Linux) platform detected. Using PulseAudio for audio capture.[/]");
+                audioCaptureService = new WslPulseAudioCaptureService();
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[green]Bare Metal Linux platform detected. Using ALSA/arecord for audio capture.[/]");
+                audioCaptureService = new BareMetalAlsaAudioCaptureService(); 
+            }
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
