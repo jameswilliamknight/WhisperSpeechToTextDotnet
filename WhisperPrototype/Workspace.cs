@@ -7,7 +7,7 @@ using NAudio.Wave;
 
 namespace WhisperPrototype;
 
-public class Workspace(AppSettings appConfig, FeatureToggles featureToggles) : IWorkspace
+public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, MenuEngine menuEngine) : IWorkspace
 {
     private string? ModelPath { get; set; }
     private string? ModelName { get; set; }
@@ -20,6 +20,44 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles) : I
     ///     Event for when a segment of text has been transcribed
     /// </summary>
     public event EventHandler<TranscribedDataEventArgs>? TranscribedDataAvailable;
+
+    public async Task<bool> SelectModelAsync()
+    {
+        var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models");
+
+        if (!Directory.Exists(modelDirectory))
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] Model directory not found: [yellow]" + modelDirectory + "[/]");
+            throw new DirectoryNotFoundException($"Model directory not found: {modelDirectory}");
+        }
+
+        var modelFiles = Directory.GetFiles(modelDirectory)
+            .Select(f => new FileInfo(f))
+            .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
+            .OrderBy(f => f.Name)
+            .ToList();
+
+        if (modelFiles.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] No model files found in: [yellow]" + modelDirectory + "[/]");
+            throw new FileNotFoundException($"No model files found in {modelDirectory}");
+        }
+
+        var selectedModelFile = await menuEngine.PromptChooseSingleFile(
+            modelFiles,
+            "Please select a [green]model file[/] to use:",
+            f => f.Name
+        );
+
+        if (selectedModelFile == null)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] No model file was selected. Application cannot continue.[/]");
+            return false;
+        }
+
+        LoadModel(selectedModelFile);
+        return true;
+    }
 
     public void LoadModel(FileInfo selectedModelFile)
     {
@@ -35,23 +73,21 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles) : I
                 $"(e.g., bin/Debug/net9.0/Models/)[/] - [yellow]which is soon to change, FYI.[/]");
             return; // Exit the application
         }
-        else
-        {
-            AnsiConsole.WriteLine($"Found model file: {tempModelPath}");
-        }
+
+        AnsiConsole.WriteLine($"Found model file: {tempModelPath}");
 
         if (!Directory.Exists(Config.InputDirectory))
         {
             AnsiConsole.WriteLine($"Creating input directory: {Config.InputDirectory}");
             Directory.CreateDirectory(Config.InputDirectory!);
+            
+            // Exit because the input directory didn't previously exist; now add files and re-run.
             AnsiConsole.WriteLine("Please place your MP3 files in this directory and run the application again.");
-            return; // Exit if the input directory doesn't exist yet
+            return;
         }
-        else
-        {
-            AnsiConsole.WriteLine($"Looking for MP3 files in: {Config.InputDirectory}");
-        }
-        
+
+        AnsiConsole.WriteLine($"Looking for MP3 files in: {Config.InputDirectory}");
+
         // Changes IsInitialised { false => true } so do it last, once finalised.
         ModelPath = tempModelPath;
         ModelName = tempModelName;
@@ -301,8 +337,7 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles) : I
         const int bytesPerSecond = sampleRate * bytesPerSample * channels;
         const int processThresholdInBytes = (int)(bytesPerSecond * desiredChunkDurationSeconds);
 
-        var lastProcessTime =
-            DateTime.UtcNow; // Kept for potential future duration-based processing trigger
+        var lastProcessTime = DateTime.UtcNow; // Kept for potential future duration-based processing trigger
 
         // Task 2.4: Implement Real-time Audio Processing Loop
         audioCaptureService.AudioDataAvailable += async (sender, args) =>

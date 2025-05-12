@@ -31,46 +31,16 @@ Console.CancelKeyPress += (sender, eventArgs) =>
 };
 
 var features = new FeatureToggles();
-var workspace = new Workspace(appSettings, features);
 var menuEngine = new MenuEngine();
+var workspace = new Workspace(appSettings, features, menuEngine);
 
 AnsiConsole.WriteLine("Preparing and checking this device before attempting conversion.");
 
-// TODO: decouple model selection, choose when to call it - don't call it here once we persist config, have additional menu item for choosing the model. 
+// Load the model initially
+if (!await workspace.SelectModelAsync())
 {
-    var modelDirectory = Path.Combine(AppContext.BaseDirectory, "Models");
-
-    if (!Directory.Exists(modelDirectory))
-    {
-        AnsiConsole.MarkupLine("[red]Error:[/] Model directory not found: [yellow]" + modelDirectory + "[/]");
-        throw new DirectoryNotFoundException($"Model directory not found: {modelDirectory}");
-    }
-
-    var modelFiles = Directory.GetFiles(modelDirectory)
-        .Select(f => new FileInfo(f))
-        .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
-        .OrderBy(f => f.Name)
-        .ToList();
-
-    if (modelFiles.Count == 0)
-    {
-        AnsiConsole.MarkupLine("[red]Error:[/] No model files found in: [yellow]" + modelDirectory + "[/]");
-        throw new FileNotFoundException($"No model files found in {modelDirectory}");
-    }
-
-    var selectedModelFile = await menuEngine.PromptChooseSingleFile(
-        modelFiles,
-        "Please select a [green]model file[/] to use:",
-        f => f.Name
-    );
-
-    if (selectedModelFile == null)
-    {
-        AnsiConsole.MarkupLine("[red]Error:[/] No model file was selected. Application cannot continue.[/]");
-        Environment.Exit(1);
-        return;
-    }
-    workspace.LoadModel(selectedModelFile);
+    Environment.Exit(1);
+    return;
 }
 
 AnsiConsole.MarkupLine("[green]Welcome to Whisper Speech to Text Transcription.[/]");
@@ -104,11 +74,7 @@ while (!exitRequested)
 
         case "Manage Models":
             AnsiConsole.MarkupLine("[cyan]Model Management...[/]");
-            AnsiConsole.MarkupLine("[yellow]Model management feature not yet fully implemented.[/]");
-            AnsiConsole.MarkupLine("Press any key to return to the main menu.");
-            //
-            // Keep the message visible until a key is pressed
-            Console.ReadKey();
+            await workspace.SelectModelAsync();
             break;
 
         case "Exit":
