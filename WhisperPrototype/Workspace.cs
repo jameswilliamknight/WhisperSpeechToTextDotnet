@@ -289,12 +289,10 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
             throw new Exception($"Please initialize the workspace with {nameof(LoadModel)}() before processing.");
         }
 
-        // Subscribe to the new event for handling transcribed data
-        this.TranscribedDataAvailable += HandleTranscribedDataOutput; // Changed handler name for clarity
+        // Subscribe to the event in order to handle transcribed data
+        TranscribedDataAvailable += HandleTranscribedDataOutput;
 
         AnsiConsole.MarkupLine("[cyan]Starting live transcription...[/]");
-
-        // Task 2.3: Initialise Whisper.net for Streaming
         AnsiConsole.MarkupLine("[grey]Initializing Whisper.net factory and processor...[/]");
 
         using var whisperFactory = WhisperFactory.FromPath(ModelPath!);
@@ -349,10 +347,12 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
         var transcriptionBuffer = new StringBuilder();
         var stopRequested = false;
 
+        // -------------------------------------------------------------------------------------------------------------
         // Configuration for audio chunking
-        const float
-            desiredChunkDurationSeconds =
-                2.0f; // Duration of audio to buffer before processing. Tune for responsiveness vs. transcription quality.
+        
+        // Duration of audio to buffer before processing. Tune for responsiveness vs. transcription quality.
+        const float desiredChunkDurationSeconds = 2.0f; 
+        
         const int bytesPerSample = 2; // 16-bit audio
         const int channels = 1; // Mono audio
         const int sampleRate = 16000; // 16kHz
@@ -361,20 +361,26 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
 
         var lastProcessTime = DateTime.UtcNow; // Kept for potential future duration-based processing trigger
 
-        // Task 2.4: Implement Real-time Audio Processing Loop
-        audioCaptureService.AudioDataAvailable += async (sender, args) =>
+        
+        // -------------------------------------------------------------------------------------------------------------
+        // Real-time Audio Processing Loop
+        
+        // TODO: extract
+        audioCaptureService.AudioDataAvailable += async (_, args) =>
         {
-            if (args.BytesRecorded > 0)
+            if (args.BytesRecorded <= 0) return;
+            
+            await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded);
+            
+            if (featureToggles.LogAudioDataReceivedMessages)
             {
-                await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded);
-                if (featureToggles.LogAudioDataReceivedMessages) // Check the flag here
-                {
-                    AnsiConsole.MarkupLine(
-                        $"[grey]Live: Received {args.BytesRecorded} audio bytes. Buffer size: {audioBuffer.Length} bytes.[/]");
-                }
+                AnsiConsole.MarkupLine(
+                    $"[grey]Live: Received {args.BytesRecorded} audio bytes. " + 
+                    $"Buffer size: {audioBuffer.Length} bytes.[/]");
             }
         };
 
+        // TODO: Inspect.
         try
         {
             await audioCaptureService.StartCaptureAsync(selectedInputDevice.Id, desiredFormat);
