@@ -30,8 +30,8 @@ Console.CancelKeyPress += (sender, eventArgs) =>
     Environment.Exit(0);
 };
 
-// The workspace orchestrates the application
-var workspace = new Workspace(appSettings);
+var features = new FeatureToggles();
+var workspace = new Workspace(appSettings, features);
 var menuEngine = new MenuEngine();
 
 AnsiConsole.WriteLine("Preparing and checking this device before attempting conversion.");
