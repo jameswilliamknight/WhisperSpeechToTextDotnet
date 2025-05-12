@@ -11,9 +11,9 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 {
     private string? ModelPath { get; set; }
     private string? ModelName { get; set; }
-    
+
     private bool IsInitialised => !string.IsNullOrEmpty(ModelPath) && !string.IsNullOrEmpty(ModelName);
-    
+
     private AppSettings Config { get; init; } = appConfig;
 
     // Event for when a segment of text has been transcribed
@@ -21,8 +21,10 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
     // Flag to control verbose audio data logging
     private readonly bool _logAudioDataReceivedMessages = false; // Set to false to disable
+
     // Flag to control detailed diagnostic messages for transcription flow
     private readonly bool _enableDiagnosticLogging = false; // Set to true to see detailed DEBUG messages
+
     // Flag to control "Processing audio chunk..." messages
     private readonly bool _logProcessingChunkMessages = false; // Set to true to see these messages
 
@@ -36,7 +38,8 @@ public class Workspace(AppSettings appConfig) : IWorkspace
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] Model file not found at {ModelPath}");
             AnsiConsole.MarkupLine(
-                $"[red]Please ensure '{Path.Combine("Models", ModelName)}' is in the application's output directory (e.g., bin/Debug/net9.0/Models/).[/]");
+                $"[red]Please ensure '{Path.Combine("Models", ModelName)}' is in the application's output directory " +
+                $"(e.g., bin/Debug/net9.0/Models/)[/] - [yellow]which is soon to change, FYI.[/]");
             return; // Exit the application
         }
         else
@@ -58,69 +61,6 @@ public class Workspace(AppSettings appConfig) : IWorkspace
     }
 
 
-    /// <summary>
-    /// Gets the duration of an audio/video file using ffmpeg.
-    ///     TODO: put in <see cref="AudioConverter"/>, return converted audio with rich metadata including duration.
-    /// </summary>
-    /// <summary>
-    /// Gets audio duration via ffprobe (minimal, no error handling).
-    /// </summary>
-    private static TimeSpan? GetAudioDuration(string filePath)
-    {
-        // Arguments to get only the duration value
-        var ffprobeArgs =
-            $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"";
-        var startInfo = new ProcessStartInfo("ffprobe", ffprobeArgs)
-        {
-            RedirectStandardOutput = true, // Need this for the duration value
-            RedirectStandardError = true, // Need this to capture potential errors
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        string durationStr = null; // Store the output here
-        string errorOutput = null; // Store errors here
-
-        try // Add minimal try-catch for process start issues
-        {
-            using var process = new Process { StartInfo = startInfo };
-            process.Start();
-
-            // Read streams *once*
-            durationStr = process.StandardOutput.ReadToEnd();
-            errorOutput = process.StandardError.ReadToEnd();
-
-            process.WaitForExit();
-
-            // Optional: Keep debug output if needed
-            // AnsiConsole.WriteLine($"Duration Detection (ffprobe stdout): {durationStr}");
-            // AnsiConsole.WriteLine($"Duration Detection (ffprobe stderr): {errorOutput}");
-
-            // Directly parse the output string
-            if (!string.IsNullOrWhiteSpace(durationStr) &&
-                double.TryParse(
-                    durationStr,
-                    System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out var durationSeconds))
-            {
-                return TimeSpan.FromSeconds(durationSeconds);
-            }
-            else if (!string.IsNullOrWhiteSpace(errorOutput)) // Log if there was an error message
-            {
-                AnsiConsole.MarkupLine(
-                    $"[yellow]ffprobe stderr (duration check): {Markup.Escape(errorOutput)}[/]"); // Use MarkupLine and Escape
-            }
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine(
-                $"[red]Error running ffprobe for duration: {Markup.Escape(ex.Message)}[/]"); // Use MarkupLine and Escape
-        }
-
-
-        return null; // Return null if parsing fails or process error
-    }
 
     private static bool IsWsl()
     {
@@ -163,7 +103,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
         {
             throw new Exception("Please initialize the workspace before processing.");
         }
-        
+
         // Create Whisper factory from the model path
         using var factory = WhisperFactory.FromPath(ModelPath!);
 
@@ -212,7 +152,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
             {
                 AnsiConsole.MarkupLine("Converting MP3 to WAV using ffmpeg...");
 
-                IAudioConverter converter = new AudioConverter();
+                IAudioConverter converter = new FFmpegWrapper();
                 converter.ToWav(audioFilePath, tempWavFilePath);
                 AnsiConsole.MarkupLine("Conversion complete.");
 
@@ -237,7 +177,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
                 sw.Stop();
 
-                var audioDuration = GetAudioDuration(tempWavFilePath);
+                var audioDuration = FFmpegWrapper.GetAudioDuration(tempWavFilePath);
                 if (audioDuration == null)
                 {
                     AnsiConsole.MarkupLine("[red]Error:[/] Could not determine audio duration for calculations.");
@@ -286,7 +226,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
         {
             throw new Exception("Please initialize the workspace before processing.");
         }
-        
+
         // Subscribe to the new event for handling transcribed data
         this.TranscribedDataAvailable += HandleTranscribedDataOutput; // Changed handler name for clarity
 
@@ -365,9 +305,11 @@ public class Workspace(AppSettings appConfig) : IWorkspace
         var stopRequested = false;
 
         // Configuration for audio chunking
-        const float desiredChunkDurationSeconds = 2.0f; // Duration of audio to buffer before processing. Tune for responsiveness vs. transcription quality.
+        const float
+            desiredChunkDurationSeconds =
+                2.0f; // Duration of audio to buffer before processing. Tune for responsiveness vs. transcription quality.
         const int bytesPerSample = 2; // 16-bit audio
-        const int channels = 1;       // Mono audio
+        const int channels = 1; // Mono audio
         const int sampleRate = 16000; // 16kHz
         const int bytesPerSecond = sampleRate * bytesPerSample * channels;
         const int processThresholdInBytes = (int)(bytesPerSecond * desiredChunkDurationSeconds);
@@ -409,12 +351,13 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
                 if (audioBuffer.Length >= processThresholdInBytes)
                 {
-                    if (_logProcessingChunkMessages) AnsiConsole.MarkupLine($"[cyan]Processing audio chunk of {audioBuffer.Length} bytes...[/]");
+                    if (_logProcessingChunkMessages)
+                        AnsiConsole.MarkupLine($"[cyan]Processing audio chunk of {audioBuffer.Length} bytes...[/]");
                     audioBuffer.Seek(0, SeekOrigin.Begin); // Reset stream position for reading
 
                     var tempBuffer = new byte[audioBuffer.Length];
                     await audioBuffer.ReadAsync(tempBuffer, 0,
-                        tempBuffer.Length); 
+                        tempBuffer.Length);
 
                     // Clear the main buffer after copying its content
                     audioBuffer.SetLength(0);
@@ -432,33 +375,41 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
                     try
                     {
-                        if (_enableDiagnosticLogging) AnsiConsole.MarkupLine("[yellow]DEBUG: About to call processor.ProcessAsync...[/]");
+                        if (_enableDiagnosticLogging)
+                            AnsiConsole.MarkupLine("[yellow]DEBUG: About to call processor.ProcessAsync...[/]");
                         bool segmentReceived = false;
                         // Call ProcessAsync with the float array of samples
-                        await foreach (var segment in processor.ProcessAsync(floatSamples)) 
+                        await foreach (var segment in processor.ProcessAsync(floatSamples))
                         {
                             segmentReceived = true;
-                            if (_enableDiagnosticLogging) 
+                            if (_enableDiagnosticLogging)
                             {
                                 var segmentTextForLog = segment.Text ?? "<null_or_empty>";
-                                AnsiConsole.MarkupLine($"[yellow]DEBUG: Segment received from Whisper: '{Markup.Escape(segmentTextForLog)}' (Length: {segmentTextForLog.Length})[/]");
+                                AnsiConsole.MarkupLine(
+                                    $"[yellow]DEBUG: Segment received from Whisper: '{Markup.Escape(segmentTextForLog)}' (Length: {segmentTextForLog.Length})[/]");
                             }
-                            
+
                             if (!string.IsNullOrWhiteSpace(segment.Text))
                             {
                                 var segmentText = Markup.Escape(segment.Text); // Escape for transcriptionBuffer too
-                                transcriptionBuffer.Append(segmentText); 
-                                if (_enableDiagnosticLogging) AnsiConsole.MarkupLine("[yellow]DEBUG: Invoking TranscribedDataAvailable event...[/]");
-                                TranscribedDataAvailable?.Invoke(this, new TranscribedDataEventArgs(segment.Text)); 
+                                transcriptionBuffer.Append(segmentText);
+                                if (_enableDiagnosticLogging)
+                                    AnsiConsole.MarkupLine(
+                                        "[yellow]DEBUG: Invoking TranscribedDataAvailable event...[/]");
+                                TranscribedDataAvailable?.Invoke(this, new TranscribedDataEventArgs(segment.Text));
                             }
                             else
                             {
-                                if (_enableDiagnosticLogging) AnsiConsole.MarkupLine("[yellow]DEBUG: Segment text is null or whitespace, not invoking event.[/]");
+                                if (_enableDiagnosticLogging)
+                                    AnsiConsole.MarkupLine(
+                                        "[yellow]DEBUG: Segment text is null or whitespace, not invoking event.[/]");
                             }
                         }
+
                         if (!segmentReceived && _enableDiagnosticLogging)
                         {
-                            AnsiConsole.MarkupLine("[yellow]DEBUG: processor.ProcessAsync completed without yielding any segments.[/]");
+                            AnsiConsole.MarkupLine(
+                                "[yellow]DEBUG: processor.ProcessAsync completed without yielding any segments.[/]");
                         }
                     }
                     catch (Exception ex)
@@ -486,13 +437,14 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
             AnsiConsole.MarkupLine("[cyan]Stopping audio capture...[/]");
             // Ensure audioCaptureService is not null before calling methods on it if it's nullable
-            if (audioCaptureService != null) 
+            if (audioCaptureService != null)
             {
                 await audioCaptureService.StopCaptureAsync();
                 await audioCaptureService.DisposeAsync();
             }
+
             AnsiConsole.MarkupLine("[green]Audio capture stopped and service disposed.[/]");
-            
+
             // Add a newline here to separate the continuous transcription from the final summary
             AnsiConsole.WriteLine();
 
@@ -529,9 +481,11 @@ public class Workspace(AppSettings appConfig) : IWorkspace
     // Handler for the TranscribedDataAvailable event
     private void HandleTranscribedDataOutput(object? sender, TranscribedDataEventArgs e)
     {
-        if (_enableDiagnosticLogging) AnsiConsole.MarkupLine($"[yellow]DEBUG: HandleTranscribedDataOutput called with text: '{Markup.Escape(e.TranscribedText)}'[/]");
+        if (_enableDiagnosticLogging)
+            AnsiConsole.MarkupLine(
+                $"[yellow]DEBUG: HandleTranscribedDataOutput called with text: '{Markup.Escape(e.TranscribedText)}'[/]");
         // Use AnsiConsole.Write for continuous output without newlines for each segment
-        AnsiConsole.Write(Markup.Escape(e.TranscribedText)); 
+        AnsiConsole.Write(Markup.Escape(e.TranscribedText));
     }
 
     public FileInfo[] GetAudioRecordings()

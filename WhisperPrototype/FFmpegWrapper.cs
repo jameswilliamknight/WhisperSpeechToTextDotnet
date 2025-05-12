@@ -3,7 +3,7 @@ using Spectre.Console;
 
 namespace WhisperPrototype;
 
-public class AudioConverter : IAudioConverter
+public class FFmpegWrapper : IAudioConverter
 {
     public void ToWav(string inputPath, string wavPath)
     {
@@ -62,5 +62,64 @@ public class AudioConverter : IAudioConverter
             throw new Exception("ffmpeg execution failed.", ex);
         }
     }
+    
+    /// <summary>
+    ///     Gets the duration of an audio/video file using ffmpeg.
+    /// </summary>
+    public static TimeSpan? GetAudioDuration(string filePath)
+    {
+        // Arguments to get only the duration value
+        var ffprobeArgs =
+            $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"";
+        var startInfo = new ProcessStartInfo("ffprobe", ffprobeArgs)
+        {
+            RedirectStandardOutput = true, // Need this for the duration value
+            RedirectStandardError = true, // Need this to capture potential errors
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
 
+        string durationStr = null; // Store the output here
+        string errorOutput = null; // Store errors here
+
+        try // Add minimal try-catch for process start issues
+        {
+            using var process = new Process { StartInfo = startInfo };
+            process.Start();
+
+            // Read streams *once*
+            durationStr = process.StandardOutput.ReadToEnd();
+            errorOutput = process.StandardError.ReadToEnd();
+
+            process.WaitForExit();
+
+            // Optional: Keep debug output if needed
+            // AnsiConsole.WriteLine($"Duration Detection (ffprobe stdout): {durationStr}");
+            // AnsiConsole.WriteLine($"Duration Detection (ffprobe stderr): {errorOutput}");
+
+            // Directly parse the output string
+            if (!string.IsNullOrWhiteSpace(durationStr) &&
+                double.TryParse(
+                    durationStr,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var durationSeconds))
+            {
+                return TimeSpan.FromSeconds(durationSeconds);
+            }
+            else if (!string.IsNullOrWhiteSpace(errorOutput)) // Log if there was an error message
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow]ffprobe stderr (duration check): {Markup.Escape(errorOutput)}[/]"); // Use MarkupLine and Escape
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error running ffprobe for duration: {Markup.Escape(ex.Message)}[/]"); // Use MarkupLine and Escape
+        }
+
+
+        return null; // Return null if parsing fails or process error
+    }
 }
