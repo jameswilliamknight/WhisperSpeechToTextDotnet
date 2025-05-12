@@ -7,7 +7,7 @@ using NAudio.Wave;
 
 namespace WhisperPrototype;
 
-public class Workspace(AppSettings appConfig) : IWorkspace
+public class Workspace(AppSettings appConfig, FeatureToggles featureToggles) : IWorkspace
 {
     private string? ModelPath { get; set; }
     private string? ModelName { get; set; }
@@ -16,35 +16,28 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
     private AppSettings Config { get; init; } = appConfig;
 
-    // Event for when a segment of text has been transcribed
+    /// <summary>
+    ///     Event for when a segment of text has been transcribed
+    /// </summary>
     public event EventHandler<TranscribedDataEventArgs>? TranscribedDataAvailable;
-
-    // Flag to control verbose audio data logging
-    private readonly bool _logAudioDataReceivedMessages = false; // Set to false to disable
-
-    // Flag to control detailed diagnostic messages for transcription flow
-    private readonly bool _enableDiagnosticLogging = false; // Set to true to see detailed DEBUG messages
-
-    // Flag to control "Processing audio chunk..." messages
-    private readonly bool _logProcessingChunkMessages = false; // Set to true to see these messages
 
     public void LoadModel(FileInfo selectedModelFile)
     {
-        ModelPath = selectedModelFile.FullName;
-        ModelName = selectedModelFile.Name;
-        AnsiConsole.WriteLine($"Selected model: {ModelPath}");
+        var tempModelPath = selectedModelFile.FullName;
+        var tempModelName = selectedModelFile.Name;
+        AnsiConsole.WriteLine($"Selected model: {tempModelPath}");
 
-        if (!File.Exists(ModelPath))
+        if (!File.Exists(tempModelPath))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Model file not found at {ModelPath}");
+            AnsiConsole.MarkupLine($"[red]Error:[/] Model file not found at {tempModelPath}");
             AnsiConsole.MarkupLine(
-                $"[red]Please ensure '{Path.Combine("Models", ModelName)}' is in the application's output directory " +
+                $"[red]Please ensure '{Path.Combine("Models", tempModelName)}' is in the application's output directory " +
                 $"(e.g., bin/Debug/net9.0/Models/)[/] - [yellow]which is soon to change, FYI.[/]");
             return; // Exit the application
         }
         else
         {
-            AnsiConsole.WriteLine($"Found model file: {ModelPath}");
+            AnsiConsole.WriteLine($"Found model file: {tempModelPath}");
         }
 
         if (!Directory.Exists(Config.InputDirectory))
@@ -58,44 +51,12 @@ public class Workspace(AppSettings appConfig) : IWorkspace
         {
             AnsiConsole.WriteLine($"Looking for MP3 files in: {Config.InputDirectory}");
         }
+        
+        // Changes IsInitialised { false => true } so do it last, once finalised.
+        ModelPath = tempModelPath;
+        ModelName = tempModelName;
     }
-
-
-
-    private static bool IsWsl()
-    {
-        // Check for common WSL environment variables
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_DISTRO_NAME")) ||
-            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_INTEROP")) ||
-            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSLENV")))
-        {
-            return true;
-        }
-
-        // Fallback: Check /proc/version for WSL indicators (Linux specific)
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            try
-            {
-                if (File.Exists("/proc/version"))
-                {
-                    var versionInfo = File.ReadAllText("/proc/version");
-                    if (versionInfo.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) ||
-                        versionInfo.Contains("WSL", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                // Ignore errors reading /proc/version, e.g. permission denied, and proceed to default Linux behavior
-                AnsiConsole.MarkupLine($"[grey]IsWsl: Error checking /proc/version: {Markup.Escape(ex.Message)}[/]");
-            }
-        }
-
-        return false;
-    }
+    
 
     public async Task Process(IEnumerable<FileInfo> audioFiles)
     {
@@ -220,11 +181,37 @@ public class Workspace(AppSettings appConfig) : IWorkspace
         AnsiConsole.MarkupLine("\nAll files processed.");
     }
 
+    public FileInfo[] GetAudioRecordings()
+    {
+        if (Config.InputDirectory == null || !Directory.Exists(Config.InputDirectory))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Input directory '{Markup.Escape(Config.InputDirectory ?? "<null>")}' not found or not configured.");
+            return [];
+        }
+
+        // Still looking for .mp3 files specifically, but method name is more generic for future expansion.
+        var audioFilePaths = Directory.GetFiles(Config.InputDirectory, "*.mp3");
+        var audioFileInfos = audioFilePaths.Select(path => new FileInfo(path)).ToList();
+
+        if (!audioFileInfos.Any())
+        {
+            AnsiConsole.MarkupLine(
+                $"[yellow]No audio recordings (*.mp3) found in {Markup.Escape(Config.InputDirectory)}.[/]");
+            AnsiConsole.MarkupLine(
+                "Please place your audio recording files in this directory and run the application again.");
+            return [];
+        }
+
+        AnsiConsole.MarkupLine($"Found [green]{audioFileInfos.Count}[/] audio recording(s) (*.mp3) to process.");
+        return audioFileInfos.ToArray();
+    }
+
     public async Task StartLiveTranscriptionAsync()
     {
         if (!IsInitialised)
         {
-            throw new Exception("Please initialize the workspace before processing.");
+            throw new Exception($"Please initialize the workspace with {nameof(LoadModel)}() before processing.");
         }
 
         // Subscribe to the new event for handling transcribed data
@@ -323,7 +310,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
             if (args.BytesRecorded > 0)
             {
                 await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded);
-                if (_logAudioDataReceivedMessages) // Check the flag here
+                if (featureToggles.LogAudioDataReceivedMessages) // Check the flag here
                 {
                     AnsiConsole.MarkupLine(
                         $"[grey]Live: Received {args.BytesRecorded} audio bytes. Buffer size: {audioBuffer.Length} bytes.[/]");
@@ -351,7 +338,7 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
                 if (audioBuffer.Length >= processThresholdInBytes)
                 {
-                    if (_logProcessingChunkMessages)
+                    if (featureToggles.LogProcessingChunkMessages)
                         AnsiConsole.MarkupLine($"[cyan]Processing audio chunk of {audioBuffer.Length} bytes...[/]");
                     audioBuffer.Seek(0, SeekOrigin.Begin); // Reset stream position for reading
 
@@ -375,14 +362,14 @@ public class Workspace(AppSettings appConfig) : IWorkspace
 
                     try
                     {
-                        if (_enableDiagnosticLogging)
+                        if (featureToggles.EnableDiagnosticLogging)
                             AnsiConsole.MarkupLine("[yellow]DEBUG: About to call processor.ProcessAsync...[/]");
                         bool segmentReceived = false;
                         // Call ProcessAsync with the float array of samples
                         await foreach (var segment in processor.ProcessAsync(floatSamples))
                         {
                             segmentReceived = true;
-                            if (_enableDiagnosticLogging)
+                            if (featureToggles.EnableDiagnosticLogging)
                             {
                                 var segmentTextForLog = segment.Text ?? "<null_or_empty>";
                                 AnsiConsole.MarkupLine(
@@ -393,20 +380,20 @@ public class Workspace(AppSettings appConfig) : IWorkspace
                             {
                                 var segmentText = Markup.Escape(segment.Text); // Escape for transcriptionBuffer too
                                 transcriptionBuffer.Append(segmentText);
-                                if (_enableDiagnosticLogging)
+                                if (featureToggles.EnableDiagnosticLogging)
                                     AnsiConsole.MarkupLine(
                                         "[yellow]DEBUG: Invoking TranscribedDataAvailable event...[/]");
                                 TranscribedDataAvailable?.Invoke(this, new TranscribedDataEventArgs(segment.Text));
                             }
                             else
                             {
-                                if (_enableDiagnosticLogging)
+                                if (featureToggles.EnableDiagnosticLogging)
                                     AnsiConsole.MarkupLine(
                                         "[yellow]DEBUG: Segment text is null or whitespace, not invoking event.[/]");
                             }
                         }
 
-                        if (!segmentReceived && _enableDiagnosticLogging)
+                        if (!segmentReceived && featureToggles.EnableDiagnosticLogging)
                         {
                             AnsiConsole.MarkupLine(
                                 "[yellow]DEBUG: processor.ProcessAsync completed without yielding any segments.[/]");
@@ -477,40 +464,52 @@ public class Workspace(AppSettings appConfig) : IWorkspace
             }
         }
     }
-
-    // Handler for the TranscribedDataAvailable event
-    private void HandleTranscribedDataOutput(object? sender, TranscribedDataEventArgs e)
+    
+    private static bool IsWsl()
     {
-        if (_enableDiagnosticLogging)
-            AnsiConsole.MarkupLine(
-                $"[yellow]DEBUG: HandleTranscribedDataOutput called with text: '{Markup.Escape(e.TranscribedText)}'[/]");
-        // Use AnsiConsole.Write for continuous output without newlines for each segment
-        AnsiConsole.Write(Markup.Escape(e.TranscribedText));
+        // Check for common WSL environment variables
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_DISTRO_NAME")) ||
+            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_INTEROP")) ||
+            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSLENV")))
+        {
+            return true;
+        }
+
+        // Fallback: Check /proc/version for WSL indicators (Linux specific)
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            try
+            {
+                if (File.Exists("/proc/version"))
+                {
+                    var versionInfo = File.ReadAllText("/proc/version");
+                    if (versionInfo.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) ||
+                        versionInfo.Contains("WSL", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Ignore errors reading /proc/version, e.g. permission denied, and proceed to default Linux behavior
+                AnsiConsole.MarkupLine($"[grey]IsWsl: Error checking /proc/version: {Markup.Escape(ex.Message)}[/]");
+            }
+        }
+
+        return false;
     }
 
-    public FileInfo[] GetAudioRecordings()
+    /// <summary>
+    ///     Handler for the <see cref="TranscribedDataAvailable"/> event
+    /// </summary>
+    private void HandleTranscribedDataOutput(object? sender, TranscribedDataEventArgs e)
     {
-        if (Config.InputDirectory == null || !Directory.Exists(Config.InputDirectory))
-        {
+        if (featureToggles.EnableDiagnosticLogging)
             AnsiConsole.MarkupLine(
-                $"[red]Error:[/] Input directory '{Markup.Escape(Config.InputDirectory ?? "<null>")}' not found or not configured.");
-            return [];
-        }
-
-        // Still looking for .mp3 files specifically, but method name is more generic for future expansion.
-        var audioFilePaths = Directory.GetFiles(Config.InputDirectory, "*.mp3");
-        var audioFileInfos = audioFilePaths.Select(path => new FileInfo(path)).ToList();
-
-        if (!audioFileInfos.Any())
-        {
-            AnsiConsole.MarkupLine(
-                $"[yellow]No audio recordings (*.mp3) found in {Markup.Escape(Config.InputDirectory)}.[/]");
-            AnsiConsole.MarkupLine(
-                "Please place your audio recording files in this directory and run the application again.");
-            return [];
-        }
-
-        AnsiConsole.MarkupLine($"Found [green]{audioFileInfos.Count}[/] audio recording(s) (*.mp3) to process.");
-        return audioFileInfos.ToArray();
+                $"[yellow]DEBUG: HandleTranscribedDataOutput called with text: '{Markup.Escape(e.TranscribedText)}'[/]");
+        
+        // Continuous output without newlines for each segment
+        AnsiConsole.Write(Markup.Escape(e.TranscribedText));
     }
 }
