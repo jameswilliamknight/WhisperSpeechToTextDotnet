@@ -15,6 +15,45 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
     private bool IsInitialised => !string.IsNullOrEmpty(ModelPath) && !string.IsNullOrEmpty(ModelName);
 
     private AppSettings Config { get; init; } = appConfig;
+    
+    private IAudioCaptureService? _audioCaptureService;
+    
+    /// <summary>
+    /// Lazily initializes and returns the appropriate IAudioCaptureService for the current platform
+    /// </summary>
+    private IAudioCaptureService? AudioCaptureService
+    {
+        get
+        {
+            if (_audioCaptureService != null)
+                return _audioCaptureService;
+                
+            // Initialize the appropriate audio capture service based on the platform
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                _audioCaptureService = new WindowsNAudioAudioCaptureService();
+                AnsiConsole.MarkupLine("[blue]Selected WindowsNAudioAudioCaptureService.[/]");
+            }
+            else if (IsWsl())
+            {
+                _audioCaptureService = new WslPulseAudioCaptureService();
+                AnsiConsole.MarkupLine("[blue]Selected WslPulseAudioCaptureService for WSL.[/]");
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                _audioCaptureService = new BareMetalAlsaAudioCaptureService();
+                AnsiConsole.MarkupLine("[blue]Selected BareMetalAlsaAudioCaptureService for Linux.[/]");
+            }
+            
+            if (_audioCaptureService == null)
+            {
+                AnsiConsole.MarkupLine(
+                    "[red]Error: Could not determine or initialize an audio capture service for the current OS.[/]");
+            }
+            
+            return _audioCaptureService;
+        }
+    }
 
     /// <summary>
     ///     Event for when a segment of text has been transcribed
@@ -268,33 +307,16 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
 
         AnsiConsole.MarkupLine($"[green]Whisper.net ready with language: en[/]");
 
-        // --- Audio Capture Service Setup (OS-dependent, determined here) ---
-        IAudioCaptureService? audioCaptureService = null;
-        var desiredFormat = new WaveFormat(16000, 16, 1); // PCM, 16kHz, 16-bit, Mono
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            audioCaptureService = new WindowsNAudioAudioCaptureService();
-            AnsiConsole.MarkupLine("[blue]Selected WindowsNAudioAudioCaptureService.[/]");
-        }
-        else if (IsWsl())
-        {
-            audioCaptureService = new WslPulseAudioCaptureService();
-            AnsiConsole.MarkupLine("[blue]Selected WslPulseAudioCaptureService for WSL.[/]");
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            audioCaptureService = new BareMetalAlsaAudioCaptureService();
-            AnsiConsole.MarkupLine("[blue]Selected BareMetalAlsaAudioCaptureService for Linux.[/]");
-        }
-
+        // Get the lazily-initialized audio capture service
+        var audioCaptureService = AudioCaptureService;
         if (audioCaptureService == null)
         {
             AnsiConsole.MarkupLine(
                 "[red]Error: Could not determine or initialize an audio capture service for the current OS.[/]");
             return;
         }
-        // --- End Audio Capture Service Setup ---
+        
+        var desiredFormat = new WaveFormat(16000, 16, 1); // PCM, 16kHz, 16-bit, Mono
 
         var availableDevices = (await audioCaptureService.GetAvailableDevicesAsync()).ToList();
         if (!availableDevices.Any())
