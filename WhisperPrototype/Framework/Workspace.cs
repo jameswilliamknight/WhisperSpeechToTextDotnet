@@ -171,18 +171,23 @@ public class Workspace(
             throw new Exception("Please initialize the workspace before processing.");
         }
 
+        if (string.IsNullOrEmpty(Config.TempDirectory))
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] TempDirectory is not configured in appsettings.json. This is required for storing temporary audio files.");
+            throw new InvalidOperationException("TempDirectory is not configured in appsettings.json.");
+        }
+        if (string.IsNullOrEmpty(Config.OutputDirectory)) // Also ensure OutputDirectory is checked, though it was implicitly used.
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] OutputDirectory is not configured in appsettings.json.");
+            throw new InvalidOperationException("OutputDirectory is not configured in appsettings.json.");
+        }
+
         // Create Whisper factory from the model path
         using var speechToTextFactory = WhisperFactory.FromPath(ModelPath!);
 
-        // Configure the processor - we'll assume English for now for better performance
-        //
-        // You can remove .WithLanguage("en") to enable language detection, but it's slower.
-        //
-        // .WithLanguage("auto") also enables detection, but we specify English avoid processing any
-        //     'language detection' features in the model which could consume processing cycles.
-        //
+        // Configure the processor
         await using var processor = speechToTextFactory.CreateBuilder()
-            .WithLanguage("en")
+            .WithLanguage("en") // Assuming English for now
             .Build();
 
         // Delegate to the new service
@@ -190,8 +195,9 @@ public class Workspace(
             audioFiles,
             processor,
             ModelName!,
-            Config.OutputDirectory!,
-            converter // Pass the IAudioConverter instance
+            Config.OutputDirectory, // OutputDirectory is now also explicitly checked
+            converter, // Pass the IAudioConverter instance
+            Config.TempDirectory // Pass the configured TempDirectory
         );
     }
 

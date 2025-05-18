@@ -10,6 +10,7 @@ using Whisper.net;
 using WhisperPrototype.Hardware; // For IAudioConverter
 using System.Threading;
 using NAudio.Wave;
+using WhisperPrototype.Events;
 using WhisperPrototype.Providers;
 
 namespace WhisperPrototype.Framework;
@@ -21,7 +22,8 @@ public class TranscriptionService : ITranscriptionService
         WhisperProcessor processor,
         string modelName,
         string outputDirectory,
-        IAudioConverter audioConverter)
+        IAudioConverter audioConverter,
+        string tempDirectoryPath)
     {
         var audioFilePath = audioFileInfo.FullName;
         var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(audioFilePath);
@@ -31,9 +33,24 @@ public class TranscriptionService : ITranscriptionService
             Directory.CreateDirectory(outputDirectory);
         }
 
+        if (!string.IsNullOrEmpty(tempDirectoryPath) && !Directory.Exists(tempDirectoryPath))
+        {
+            try
+            {
+                Directory.CreateDirectory(tempDirectoryPath);
+                AnsiConsole.MarkupLine($"[grey]Created temporary directory: {Markup.Escape(tempDirectoryPath)}[/]");
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]Error creating temporary directory {Markup.Escape(tempDirectoryPath)}: {Markup.Escape(ex.Message)}[/]");
+                // Fallback or re-throw depending on desired behavior. For now, we proceed, Path.Combine might fail.
+            }
+        }
+
         var outputTxtFilePath =
             Path.Combine(outputDirectory, $"{fileNameWithoutExtension}_{modelName}.txt");
-        var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav");
+        
+        var tempWavFilePath = Path.Combine(tempDirectoryPath, $"{Guid.NewGuid()}.wav");
 
         AnsiConsole.MarkupLine($"\nProcessing: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
 
@@ -121,11 +138,12 @@ public class TranscriptionService : ITranscriptionService
         WhisperProcessor processor,
         string modelName,
         string outputDirectory,
-        IAudioConverter audioConverter)
+        IAudioConverter audioConverter,
+        string tempDirectoryPath)
     {
         foreach (var audioFileInfo in audioFiles)
         {
-            await TranscribeFileAsync(audioFileInfo, processor, modelName, outputDirectory, audioConverter);
+            await TranscribeFileAsync(audioFileInfo, processor, modelName, outputDirectory, audioConverter, tempDirectoryPath);
         }
         AnsiConsole.MarkupLine("\nAll files processed.");
     }
@@ -185,7 +203,7 @@ public class TranscriptionService : ITranscriptionService
         const int bytesPerSecond = sampleRate * bytesPerSample * channels;
         const int processThresholdInBytes = (int)(bytesPerSecond * desiredChunkDurationSeconds);
 
-        audioCaptureService.AudioDataAvailable += async (_, args) =>
+        Func<object, AudioDataAvailableEventArgs, Task> audioDataHandler = async (_, args) =>
         {
             if (args.BytesRecorded <= 0) return;
             await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded);
@@ -196,6 +214,7 @@ public class TranscriptionService : ITranscriptionService
                     $"Buffer size: {audioBuffer.Length} bytes.[/]");
             }
         };
+        audioCaptureService.AudioDataAvailable += (sender, args) => { audioDataHandler(sender, args); };
 
         try
         {
@@ -228,7 +247,7 @@ public class TranscriptionService : ITranscriptionService
                         if (featureToggles.EnableDiagnosticLogging)
                             AnsiConsole.MarkupLine("[yellow]DEBUG: About to call processor.ProcessAsync...[/]");
                         bool segmentReceived = false;
-                        await foreach (var segment in processor.ProcessAsync(floatSamples))
+                        await foreach (var segment in processor.ProcessAsync(floatSamples).WithCancellation(cancellationToken))
                         {
                             segmentReceived = true;
                             if (featureToggles.EnableDiagnosticLogging)
@@ -255,12 +274,25 @@ public class TranscriptionService : ITranscriptionService
                                 "[yellow]DEBUG: processor.ProcessAsync completed without yielding any segments.[/]");
                         }
                     }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        AnsiConsole.MarkupLine("[yellow]Transcription processing canceled.[/]");
+                        break; // Exit the loop if canceled during ProcessAsync
+                    }
                     catch (Exception ex)
                     {
-                        AnsiConsole.MarkupLine($"[red]Error during transcription: {Markup.Escape(ex.Message)}[/]");
+                        AnsiConsole.MarkupLine($"[red]Error during transcription processing chunk: {Markup.Escape(ex.Message)}[/]");
                     }
                 }
-                await Task.Delay(100, cancellationToken);
+                try
+                {
+                    await Task.Delay(100, cancellationToken); // Prevent tight loop, honor cancellation
+                }
+                catch (OperationCanceledException)
+                {
+                    AnsiConsole.MarkupLine("[yellow]Task.Delay canceled during live transcription loop.[/]");
+                    break; // Exit loop if Task.Delay is canceled
+                }
             }
 
             if (cancellationToken.IsCancellationRequested)
@@ -268,7 +300,7 @@ public class TranscriptionService : ITranscriptionService
                 AnsiConsole.MarkupLine("[yellow]Live transcription cancellation requested.[/]");
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) // Catches cancellation from StartCaptureAsync or before the loop
         {
             AnsiConsole.MarkupLine("[yellow]Live transcription was canceled.[/]");
         }
@@ -278,9 +310,6 @@ public class TranscriptionService : ITranscriptionService
         }
         finally
         {
-            // audioCaptureService.AudioDataAvailable -= ... (Handler is a lambda, harder to remove directly without storing it)
-            // Consider refactoring AudioDataAvailable handler if precise unsubscription is critical here.
-
             AnsiConsole.MarkupLine("[cyan]Stopping audio capture (within TranscriptionService)...[/]");
             // StopCaptureAsync and DisposeAsync for audioCaptureService should be managed by the caller (Workspace)
             // as it created and owns the service instance.

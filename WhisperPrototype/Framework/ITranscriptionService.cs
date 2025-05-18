@@ -15,14 +15,16 @@ public interface ITranscriptionService
         WhisperProcessor processor,
         string modelName,
         string outputDirectory,
-        IAudioConverter audioConverter);
+        IAudioConverter audioConverter,
+        string tempDirectoryPath);
 
     Task TranscribeAllFilesAsync(
         IEnumerable<FileInfo> audioFiles,
         WhisperProcessor processor,
         string modelName,
         string outputDirectory,
-        IAudioConverter audioConverter);
+        IAudioConverter audioConverter,
+        string tempDirectoryPath);
 
     Task StartLiveTranscriptionAsync(
         string modelPath,
