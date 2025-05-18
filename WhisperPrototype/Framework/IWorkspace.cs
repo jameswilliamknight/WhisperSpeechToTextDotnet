@@ -1,6 +1,6 @@
 using WhisperPrototype.Events;
 
-namespace WhisperPrototype;
+namespace WhisperPrototype.Framework;
 
 public interface IWorkspace
 {
