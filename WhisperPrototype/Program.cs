@@ -62,9 +62,12 @@ while (!exitRequested)
     {
         case "Process Audio Recordings":
             var audioFiles = workspace.GetAudioRecordings();
-            await menuEngine.SelectMultipleAndProcessAsync<FileInfo>(
+            await menuEngine.SelectMultipleAndProcessAsync(
                 audioFiles,
-                async (chosenFiles) => await workspace.Process(chosenFiles),
+                //
+                // Callback / Func does the processing.
+                async (chosenFiles) => await workspace.Transcribe(chosenFiles),
+                //
                 "Audio Recording",
                 fi => fi.Name
             );

@@ -142,7 +142,7 @@ public class Workspace(
     }
 
 
-    public async Task Process(IEnumerable<FileInfo> audioFiles)
+    public async Task Transcribe(IEnumerable<FileInfo> audioFiles)
     {
         if (!IsInitialised)
         {
