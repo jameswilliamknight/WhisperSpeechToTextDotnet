@@ -35,7 +35,8 @@ Console.CancelKeyPress += (sender, eventArgs) =>
 var features = new FeatureToggles();
 var menuEngine = new MenuEngine();
 var converter = new FFmpegWrapper();
-var workspace = new Workspace(appSettings, features, menuEngine, converter);
+var transcriptionService = new TranscriptionService();
+var workspace = new Workspace(appSettings, features, menuEngine, converter, transcriptionService);
 
 AnsiConsole.WriteLine("Preparing and checking this device before attempting conversion.");
 
