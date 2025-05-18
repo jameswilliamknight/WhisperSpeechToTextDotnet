@@ -11,7 +11,12 @@ using WhisperPrototype.Services;
 
 namespace WhisperPrototype.Framework;
 
-public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, MenuEngine menuEngine) : IWorkspace
+public class Workspace(
+    AppSettings appConfig,
+    FeatureToggles featureToggles,
+    MenuEngine menuEngine,
+    IAudioConverter converter)
+    : IWorkspace
 {
     private string? ModelPath { get; set; }
     private string? ModelName { get; set; }
@@ -19,9 +24,9 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
     private bool IsInitialised => !string.IsNullOrEmpty(ModelPath) && !string.IsNullOrEmpty(ModelName);
 
     private AppSettings Config { get; init; } = appConfig;
-    
+
     private IAudioCaptureService? _audioCaptureService;
-    
+
     /// <summary>
     /// Lazily initializes and returns the appropriate IAudioCaptureService for the current platform
     /// </summary>
@@ -31,7 +36,7 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
         {
             if (_audioCaptureService != null)
                 return _audioCaptureService;
-                
+
             // Initialize the appropriate audio capture service based on the platform
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
@@ -48,13 +53,13 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
                 _audioCaptureService = new BareMetalAlsaAudioCaptureService();
                 AnsiConsole.MarkupLine("[blue]Selected BareMetalAlsaAudioCaptureService for Linux.[/]");
             }
-            
+
             if (_audioCaptureService == null)
             {
                 AnsiConsole.MarkupLine(
                     "[red]Error: Could not determine or initialize an audio capture service for the current OS.[/]");
             }
-            
+
             return _audioCaptureService;
         }
     }
@@ -123,7 +128,7 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
         {
             AnsiConsole.WriteLine($"Creating input directory: {Config.InputDirectory}");
             Directory.CreateDirectory(Config.InputDirectory!);
-            
+
             // Exit because the input directory didn't previously exist; now add files and re-run.
             AnsiConsole.WriteLine("Please place your MP3 files in this directory and run the application again.");
             return;
@@ -135,7 +140,7 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
         ModelPath = tempModelPath;
         ModelName = tempModelName;
     }
-    
+
 
     public async Task Process(IEnumerable<FileInfo> audioFiles)
     {
@@ -191,11 +196,10 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
             try
             {
                 AnsiConsole.MarkupLine("Converting MP3 to WAV using ffmpeg...");
-
-                IAudioConverter converter = new FFmpegWrapper();
+                
                 converter.ToWav(audioFilePath, tempWavFilePath);
+                
                 AnsiConsole.MarkupLine("Conversion complete.");
-
                 AnsiConsole.MarkupLine("Starting transcription...");
 
                 if (!File.Exists(tempWavFilePath))
@@ -317,7 +321,7 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
                 "[red]Error: Could not determine or initialize an audio capture service for the current OS.[/]");
             return;
         }
-        
+
         var desiredFormat = new WaveFormat(16000, 16, 1); // PCM, 16kHz, 16-bit, Mono
 
         var availableDevices = (await audioCaptureService.GetAvailableDevicesAsync()).ToList();
@@ -353,10 +357,10 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
 
         // -------------------------------------------------------------------------------------------------------------
         // Configuration for audio chunking
-        
+
         // Duration of audio to buffer before processing. Tune for responsiveness vs. transcription quality.
-        const float desiredChunkDurationSeconds = 2.0f; 
-        
+        const float desiredChunkDurationSeconds = 2.0f;
+
         const int bytesPerSample = 2; // 16-bit audio
         const int channels = 1; // Mono audio
         const int sampleRate = 16000; // 16kHz
@@ -365,21 +369,21 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
 
         var lastProcessTime = DateTime.UtcNow; // Kept for potential future duration-based processing trigger
 
-        
+
         // -------------------------------------------------------------------------------------------------------------
         // Real-time Audio Processing Loop
-        
+
         // TODO: extract
         audioCaptureService.AudioDataAvailable += async (_, args) =>
         {
             if (args.BytesRecorded <= 0) return;
-            
+
             await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded);
-            
+
             if (featureToggles.LogAudioDataReceivedMessages)
             {
                 AnsiConsole.MarkupLine(
-                    $"[grey]Live: Received {args.BytesRecorded} audio bytes. " + 
+                    $"[grey]Live: Received {args.BytesRecorded} audio bytes. " +
                     $"Buffer size: {audioBuffer.Length} bytes.[/]");
             }
         };
@@ -531,7 +535,7 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
             }
         }
     }
-    
+
     private static bool IsWsl()
     {
         // Check for common WSL environment variables
@@ -575,7 +579,7 @@ public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, Men
         if (featureToggles.EnableDiagnosticLogging)
             AnsiConsole.MarkupLine(
                 $"[yellow]DEBUG: HandleTranscribedDataOutput called with text: '{Markup.Escape(e.TranscribedText)}'[/]");
-        
+
         // Continuous output without newlines for each segment
         AnsiConsole.Write(Markup.Escape(e.TranscribedText));
     }

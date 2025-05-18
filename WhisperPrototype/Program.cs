@@ -2,6 +2,7 @@
 using WhisperPrototype;
 using Microsoft.Extensions.Configuration;
 using WhisperPrototype.Framework;
+using WhisperPrototype.Providers;
 
 var exitRequested = false;
 
@@ -33,7 +34,8 @@ Console.CancelKeyPress += (sender, eventArgs) =>
 
 var features = new FeatureToggles();
 var menuEngine = new MenuEngine();
-var workspace = new Workspace(appSettings, features, menuEngine);
+var converter = new FFmpegWrapper();
+var workspace = new Workspace(appSettings, features, menuEngine, converter);
 
 AnsiConsole.WriteLine("Preparing and checking this device before attempting conversion.");
 

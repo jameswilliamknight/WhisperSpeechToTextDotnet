@@ -17,12 +17,19 @@ public class FFmpegWrapper : IAudioConverter
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = "ffmpeg", // Assumes ffmpeg is in the system's PATH
+            // Assumes ffmpeg is in the system's PATH
+            FileName = "ffmpeg",
+            //
             Arguments = ffmpegArgs,
             UseShellExecute = false,
-            RedirectStandardOutput = true, // Redirect output for potential debugging info
-            RedirectStandardError = true,  // Redirect errors
-            CreateNoWindow = true          // Don't create a visible window (for console app)
+            //
+            // For potential debugging info
+            RedirectStandardOutput = true,
+            //
+            RedirectStandardError = true,
+            //
+            // Don't create a visible window (for console app)
+            CreateNoWindow = true
         };
 
         AnsiConsole.WriteLine($"Executing: ffmpeg {ffmpegArgs}");
@@ -35,18 +42,21 @@ public class FFmpegWrapper : IAudioConverter
             process.Start();
 
             // Read output/error streams to prevent deadlocks
-            var output = process.StandardOutput.ReadToEnd();
+            process.StandardOutput.ReadToEnd();
             var error = process.StandardError.ReadToEnd();
 
             process.WaitForExit();
 
-            if (process.ExitCode != 0)
+            if (process.ExitCode == 0)
             {
-                // If ffmpeg returns a non-zero exit code, it means an error occurred
-                AnsiConsole.MarkupLine("[red]ffmpeg Error Output:[/]");
-                AnsiConsole.MarkupLine($"[red]{error}[/]");
-                throw new Exception($"ffmpeg process failed with exit code {process.ExitCode}. See console output for details.");
+                return;
             }
+            
+            // ffmpeg returned a non-zero exit code, an error occurred
+            AnsiConsole.MarkupLine("[red]ffmpeg Error Output:[/]");
+            AnsiConsole.MarkupLine($"[red]{error}[/]");
+            throw new Exception(
+                $"ffmpeg process failed with exit code {process.ExitCode}. See console output for details.");
 
             // Optional
             // AnsiConsole.WriteLine("ffmpeg Output:");
@@ -62,7 +72,7 @@ public class FFmpegWrapper : IAudioConverter
             throw new Exception("ffmpeg execution failed.", ex);
         }
     }
-    
+
     /// <summary>
     ///     Gets the duration of an audio/video file using ffmpeg.
     /// </summary>
@@ -71,25 +81,23 @@ public class FFmpegWrapper : IAudioConverter
         // Arguments to get only the duration value
         var ffprobeArgs =
             $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"";
+        
         var startInfo = new ProcessStartInfo("ffprobe", ffprobeArgs)
         {
-            RedirectStandardOutput = true, // Need this for the duration value
+            RedirectStandardOutput = true, // Need this for the duration value (plain text output from command)
             RedirectStandardError = true, // Need this to capture potential errors
             UseShellExecute = false,
             CreateNoWindow = true
         };
 
-        string durationStr = null; // Store the output here
-        string errorOutput = null; // Store errors here
-
-        try // Add minimal try-catch for process start issues
+        try
         {
-            using var process = new Process { StartInfo = startInfo };
+            using var process = new Process();
+            process.StartInfo = startInfo;
             process.Start();
 
-            // Read streams *once*
-            durationStr = process.StandardOutput.ReadToEnd();
-            errorOutput = process.StandardError.ReadToEnd();
+            var reportedAudioLengthOutput = process.StandardOutput.ReadToEnd();
+            var errorOutput = process.StandardError.ReadToEnd();
 
             process.WaitForExit();
 
@@ -98,28 +106,29 @@ public class FFmpegWrapper : IAudioConverter
             // AnsiConsole.WriteLine($"Duration Detection (ffprobe stderr): {errorOutput}");
 
             // Directly parse the output string
-            if (!string.IsNullOrWhiteSpace(durationStr) &&
+            if (!string.IsNullOrWhiteSpace(reportedAudioLengthOutput) &&
                 double.TryParse(
-                    durationStr,
+                    reportedAudioLengthOutput,
                     System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture,
                     out var durationSeconds))
             {
                 return TimeSpan.FromSeconds(durationSeconds);
             }
-            else if (!string.IsNullOrWhiteSpace(errorOutput)) // Log if there was an error message
+
+            if (!string.IsNullOrWhiteSpace(errorOutput))
             {
                 AnsiConsole.MarkupLine(
-                    $"[yellow]ffprobe stderr (duration check): {Markup.Escape(errorOutput)}[/]"); // Use MarkupLine and Escape
+                    $"[yellow]ffprobe stderr (duration check): {Markup.Escape(errorOutput)}[/]");
             }
         }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine(
-                $"[red]Error running ffprobe for duration: {Markup.Escape(ex.Message)}[/]"); // Use MarkupLine and Escape
+                $"[red]Error running ffprobe for duration: {Markup.Escape(ex.Message)}[/]");
         }
 
-
-        return null; // Return null if parsing fails or process error
+        // Parsing failed, or there was an error.
+        return null;
     }
 }
