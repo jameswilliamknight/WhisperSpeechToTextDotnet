@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json; // For serializing AudioSegment list
 using System.Threading.Tasks;
 using Spectre.Console;
 using Whisper.net;
@@ -17,6 +18,17 @@ namespace WhisperPrototype.Framework;
 
 public class TranscriptionService : ITranscriptionService
 {
+    private readonly IAudioChunker _audioChunker;
+    private readonly IAudioSegmentProcessor _segmentProcessor;
+    private readonly AppSettings _appSettings; // To access VAD parameters
+
+    public TranscriptionService(IAudioChunker audioChunker, IAudioSegmentProcessor segmentProcessor, AppSettings appSettings)
+    {
+        _audioChunker = audioChunker;
+        _segmentProcessor = segmentProcessor;
+        _appSettings = appSettings; // Store AppSettings to get VAD parameters
+    }
+
     public async Task TranscribeFileAsync(
         FileInfo audioFileInfo,
         WhisperProcessor processor,
@@ -27,10 +39,14 @@ public class TranscriptionService : ITranscriptionService
     {
         var audioFilePath = audioFileInfo.FullName;
         var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(audioFilePath);
+        var originalFileNameForLogging = Markup.Escape(audioFileInfo.Name);
+
+        AnsiConsole.MarkupLine($"\n[bold blue]TRANSCRIPTION SERVICE: Starting process for {originalFileNameForLogging}[/]");
 
         if (!Directory.Exists(outputDirectory))
         {
             Directory.CreateDirectory(outputDirectory);
+            AnsiConsole.MarkupLine($"[grey]   Created output directory: {Markup.Escape(outputDirectory)}[/]");
         }
 
         if (!string.IsNullOrEmpty(tempDirectoryPath) && !Directory.Exists(tempDirectoryPath))
@@ -38,98 +54,162 @@ public class TranscriptionService : ITranscriptionService
             try
             {
                 Directory.CreateDirectory(tempDirectoryPath);
-                AnsiConsole.MarkupLine($"[grey]Created temporary directory: {Markup.Escape(tempDirectoryPath)}[/]");
+                AnsiConsole.MarkupLine($"[grey]   Created temporary directory: {Markup.Escape(tempDirectoryPath)}[/]");
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]Error creating temporary directory {Markup.Escape(tempDirectoryPath)}: {Markup.Escape(ex.Message)}[/]");
-                // Fallback or re-throw depending on desired behavior. For now, we proceed, Path.Combine might fail.
+                AnsiConsole.MarkupLine($"[red]   Error creating temporary directory {Markup.Escape(tempDirectoryPath)}: {Markup.Escape(ex.Message)}[/]");
+                // Decide on fallback or re-throw. For now, let it proceed, Path.Combine might fail or subsequent ops.
             }
         }
 
         var outputTxtFilePath =
             Path.Combine(outputDirectory, $"{fileNameWithoutExtension}_{modelName}.txt");
-        
-        var tempWavFilePath = Path.Combine(tempDirectoryPath, $"{Guid.NewGuid()}.wav");
-
-        AnsiConsole.MarkupLine($"\nProcessing: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
+        var tempWavFilePath = Path.Combine(tempDirectoryPath, $"{fileNameWithoutExtension}_full_temp.wav"); // Made temp WAV name more specific
 
         if (File.Exists(outputTxtFilePath))
         {
-            AnsiConsole.MarkupLine($"Output file already exists: [yellow]{Markup.Escape(outputTxtFilePath)}[/].");
-            var overwrite = await AnsiConsole.ConfirmAsync("Do you want to overwrite it?", defaultValue: false);
+            AnsiConsole.MarkupLine($"[yellow]   Output file already exists: {Markup.Escape(outputTxtFilePath)}[/].");
+            var overwrite = await AnsiConsole.ConfirmAsync("   Do you want to overwrite it?", defaultValue: false);
             if (overwrite)
             {
-                AnsiConsole.MarkupLine($"Deleting existing file: [yellow]{Markup.Escape(outputTxtFilePath)}[/]");
+                AnsiConsole.MarkupLine($"[grey]   Deleting existing output file: {Markup.Escape(outputTxtFilePath)}[/]");
                 File.Delete(outputTxtFilePath);
             }
             else
             {
-                AnsiConsole.MarkupLine($"Skipping processing for: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
+                AnsiConsole.MarkupLine($"[cyan]   Skipping processing for: {originalFileNameForLogging}[/]");
                 return;
             }
         }
+        
+        // Path for storing the detected audio segments as JSON
+        var segmentsJsonFilePath = Path.ChangeExtension(tempWavFilePath, ".segments.json");
 
         try
         {
-            AnsiConsole.MarkupLine("Converting MP3 to WAV using ffmpeg...");
+            AnsiConsole.MarkupLine($"[cyan]   Step 1: Converting to WAV for {originalFileNameForLogging}...[/]");
+            AnsiConsole.MarkupLine($"[grey]     Source: {Markup.Escape(audioFilePath)}[/]");
+            AnsiConsole.MarkupLine($"[grey]     Target Temp WAV: {Markup.Escape(tempWavFilePath)}[/]");
             audioConverter.ToWav(audioFilePath, tempWavFilePath);
-            AnsiConsole.MarkupLine("Conversion complete.");
-            AnsiConsole.MarkupLine("Starting transcription...");
+            AnsiConsole.MarkupLine("[green]     Conversion to WAV complete.[/]");
 
             if (!File.Exists(tempWavFilePath))
             {
-                throw new FileNotFoundException(
-                    $"ffmpeg failed to create the temporary WAV file: {tempWavFilePath}");
+                throw new FileNotFoundException($"Audio conversion failed to create the temporary WAV file: {tempWavFilePath}");
             }
 
-            var sw = new Stopwatch();
-            sw.Start();
-
-            await using var audioStream = File.OpenRead(tempWavFilePath);
-            var transcription = new StringBuilder();
-
-            await foreach (var segment in processor.ProcessAsync(audioStream))
+            AnsiConsole.MarkupLine($"[cyan]   Step 2: Detecting speech segments for {originalFileNameForLogging}...[/]");
+            var vadParameters = new VADParameters // Populate from AppSettings
             {
-                transcription.Append(segment.Text);
-            }
+                SilenceDetectionNoiseDb = _appSettings.SilenceDetectionNoiseDb,
+                MinSilenceDurationSeconds = _appSettings.MinSilenceDurationSeconds,
+                MinSpeechSegmentSeconds = _appSettings.MinSpeechSegmentSeconds,
+                SegmentPaddingSeconds = _appSettings.SegmentPaddingSeconds
+            };
+            List<AudioSegment> speechSegments = await _audioChunker.DetectSpeechSegmentsAsync(tempWavFilePath, vadParameters);
 
-            sw.Stop();
-
-            var audioDuration = FFmpegWrapper.GetAudioDuration(tempWavFilePath);
-            if (audioDuration == null)
+            // Serialize and save the detected segments to JSON
+            try
             {
-                AnsiConsole.MarkupLine("[red]Error:[/] Could not determine audio duration for calculations.");
+                var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+                var segmentsJson = JsonSerializer.Serialize(speechSegments, jsonOptions);
+                await File.WriteAllTextAsync(segmentsJsonFilePath, segmentsJson);
+                AnsiConsole.MarkupLine($"[green]   Detected segments saved to: {Markup.Escape(segmentsJsonFilePath)}[/]");
             }
-            else
+            catch (Exception ex)
             {
-                var ratio = sw.Elapsed.TotalSeconds / audioDuration.Value.TotalSeconds;
-                var audioDurationText = audioDuration.Value.TotalSeconds.ToString("F2");
-                var elapsedText = sw.Elapsed.TotalSeconds.ToString("F2");
-                var ratioText = ratio.ToString("F2");
-                var speedColor = ratio < 1 ? "green" : "red";
-                var speedDetailsMarkup = $"[bold {speedColor}]{ratioText}x speed[/]";
-                AnsiConsole.MarkupLine(
-                    $"Transcription of [green]{audioDurationText}s[/] audio completed in [yellow]{elapsedText}s[/] ({speedDetailsMarkup})."
-                );
+                AnsiConsole.MarkupLine($"[yellow]   Warning: Could not save detected segments to JSON ({Markup.Escape(segmentsJsonFilePath)}): {Markup.Escape(ex.Message)}[/]");
             }
 
-            await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
-            AnsiConsole.MarkupLine($"Transcription saved to: [yellow]{Markup.Escape(outputTxtFilePath)}[/]");
-            AnsiConsole.WriteLine(transcription.ToString());
-            AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {Markup.Escape(audioFileInfo.Name)} ---");
+            if (!speechSegments.Any())
+            {
+                AnsiConsole.MarkupLine($"[yellow]   No speech segments detected for {originalFileNameForLogging}. Transcription will be empty.[/]");
+                await File.WriteAllTextAsync(outputTxtFilePath, string.Empty); // Create an empty transcription file
+                AnsiConsole.MarkupLine($"[green]   Empty transcription saved to: {Markup.Escape(outputTxtFilePath)}[/]");
+                return;
+            }
+
+            AnsiConsole.MarkupLine($"[cyan]   Step 3: Transcribing {speechSegments.Count} speech segment(s) for {originalFileNameForLogging}...[/]");
+            var overallTranscription = new StringBuilder();
+            var overallStopwatch = Stopwatch.StartNew();
+            double totalAudioProcessedDurationSeconds = 0;
+
+            for (var i = 0; i < speechSegments.Count; i++)
+            {
+                var segment = speechSegments[i];
+                AnsiConsole.MarkupLine($"[blue]     Transcribing segment {i + 1}/{speechSegments.Count}: {segment.StartTime:g} to {segment.EndTime:g} (Duration: {segment.Duration:g})[/]");
+                var segmentStopwatch = Stopwatch.StartNew();
+                try
+                {
+                    // Get stream for the current segment
+                    // The FFmpegAudioSegmentProcessor will create a temp file for this segment and clean it up.
+                    await using var segmentStream = await _segmentProcessor.GetSegmentStreamAsync(tempWavFilePath, segment, i, speechSegments.Count);
+
+                    if (segmentStream == Stream.Null || segmentStream.Length == 0) 
+                    { 
+                        AnsiConsole.MarkupLine($"[yellow]     Segment {i+1} stream is null or empty, skipping transcription for this segment.[/]");
+                        continue; 
+                    }
+
+                    await foreach (var result in processor.ProcessAsync(segmentStream))
+                    {
+                        overallTranscription.Append(result.Text);
+                    }
+                    totalAudioProcessedDurationSeconds += segment.Duration.TotalSeconds;
+                    segmentStopwatch.Stop();
+                    AnsiConsole.MarkupLine($"[green]     Segment {i + 1} transcribed in {segmentStopwatch.ElapsedMilliseconds}ms. Appended to main transcript.[/]");
+                }
+                catch (Exception ex)
+                {
+                    segmentStopwatch.Stop();
+                    AnsiConsole.MarkupLine($"[red]     Error transcribing segment {i + 1} ({segment.StartTime:g}-{segment.EndTime:g}): {Markup.Escape(ex.Message)}[/]");
+                    AnsiConsole.MarkupLine($"[yellow]     Skipping this segment, continuing with others if any.[/]");
+                }
+            }
+
+            overallStopwatch.Stop();
+            AnsiConsole.MarkupLine($"[green]   All segments transcribed for {originalFileNameForLogging}.[/]");
+            
+            var audioDuration = TimeSpan.FromSeconds(totalAudioProcessedDurationSeconds); // Sum of processed segment durations
+            var ratio = overallStopwatch.Elapsed.TotalSeconds / audioDuration.TotalSeconds;
+            var audioDurationText = audioDuration.TotalSeconds.ToString("F2");
+            var elapsedText = overallStopwatch.Elapsed.TotalSeconds.ToString("F2");
+            var ratioText = ratio.ToString("F2");
+            var speedColor = ratio < 1 ? "green" : "red";
+            var speedDetailsMarkup = $"[bold {speedColor}]{ratioText}x speed[/]";
+
+            AnsiConsole.MarkupLine(
+                $"[green]   Transcription of {speechSegments.Count} segments (total speech: {audioDurationText}s) completed in {elapsedText}s ({speedDetailsMarkup}).[/]"
+            );
+
+            await File.WriteAllTextAsync(outputTxtFilePath, overallTranscription.ToString());
+            AnsiConsole.MarkupLine($"[green]   Full transcription saved to: {Markup.Escape(outputTxtFilePath)}[/]");
+            AnsiConsole.WriteLine(Markup.Escape(overallTranscription.ToString()));
+            AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {originalFileNameForLogging} ---");
         }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine(
-                $"[red]Error processing {Markup.Escape(audioFileInfo.Name)}:[/] {Markup.Escape(ex.Message)}");
+                $"[red]TRANSCRIPTION SERVICE: Error processing {originalFileNameForLogging}: {Markup.Escape(ex.Message)}[/]");
+             // Optionally print stack trace for debugging: AnsiConsole.WriteException(ex);
         }
         finally
         {
+            // Delete the main temporary WAV file (segment temp files are deleted on close by FFmpegAudioSegmentProcessor)
             if (File.Exists(tempWavFilePath))
             {
-                File.Delete(tempWavFilePath);
+                try
+                {
+                    File.Delete(tempWavFilePath);
+                    AnsiConsole.MarkupLine($"[grey]   Cleaned up main temporary WAV file: {Markup.Escape(tempWavFilePath)}[/]");
+                }
+                catch (IOException ioEx)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]   Warning: Could not delete main temporary WAV file {Markup.Escape(tempWavFilePath)}: {Markup.Escape(ioEx.Message)}[/]");
+                }
             }
+            // The .segments.json file is intentionally kept for inspection.
         }
     }
 
@@ -141,11 +221,12 @@ public class TranscriptionService : ITranscriptionService
         IAudioConverter audioConverter,
         string tempDirectoryPath)
     {
+        AnsiConsole.MarkupLine($"\n[bold blue]TRANSCRIPTION SERVICE: Starting batch transcription for {audioFiles.Count()} file(s).[/]");
         foreach (var audioFileInfo in audioFiles)
         {
             await TranscribeFileAsync(audioFileInfo, processor, modelName, outputDirectory, audioConverter, tempDirectoryPath);
         }
-        AnsiConsole.MarkupLine("\nAll files processed.");
+        AnsiConsole.MarkupLine("[bold blue]TRANSCRIPTION SERVICE: All files processed.[/]");
     }
 
     public async Task StartLiveTranscriptionAsync(
@@ -234,32 +315,32 @@ public class TranscriptionService : ITranscriptionService
                     audioBuffer.SetLength(0);
                     audioBuffer.Seek(0, SeekOrigin.Begin);
 
-                    int numSamples = tempBuffer.Length / bytesPerSample;
-                    float[] floatSamples = new float[numSamples];
-                    for (int i = 0; i < numSamples; i++)
+                    var numSamples = tempBuffer.Length / bytesPerSample;
+                    var floatSamples = new float[numSamples];
+                    for (var k = 0; k < numSamples; k++)
                     {
-                        short pcmSample = BitConverter.ToInt16(tempBuffer, i * bytesPerSample);
-                        floatSamples[i] = pcmSample / 32768.0f;
+                        var pcmSample = BitConverter.ToInt16(tempBuffer, k * bytesPerSample);
+                        floatSamples[k] = pcmSample / 32768.0f;
                     }
 
                     try
                     {
                         if (featureToggles.EnableDiagnosticLogging)
                             AnsiConsole.MarkupLine("[yellow]DEBUG: About to call processor.ProcessAsync...[/]");
-                        bool segmentReceived = false;
-                        await foreach (var segment in processor.ProcessAsync(floatSamples).WithCancellation(cancellationToken))
+                        var segmentReceived = false;
+                        await foreach (var segmentData in processor.ProcessAsync(floatSamples).WithCancellation(cancellationToken))
                         {
                             segmentReceived = true;
                             if (featureToggles.EnableDiagnosticLogging)
                             {
-                                var segmentTextForLog = segment.Text ?? "<null_or_empty>";
+                                var segmentTextForLog = segmentData.Text ?? "<null_or_empty>";
                                 AnsiConsole.MarkupLine(
                                     $"[yellow]DEBUG: Segment received from Whisper: '{Markup.Escape(segmentTextForLog)}' (Length: {segmentTextForLog.Length})[/]");
                             }
-                            if (!string.IsNullOrWhiteSpace(segment.Text))
+                            if (!string.IsNullOrWhiteSpace(segmentData.Text))
                             {
-                                transcriptionBuffer.Append(segment.Text); // Append raw text
-                                onSegmentTranscribed(segment.Text); // Invoke callback with raw text
+                                transcriptionBuffer.Append(segmentData.Text); 
+                                onSegmentTranscribed(segmentData.Text); 
                             }
                             else
                             {
@@ -277,7 +358,7 @@ public class TranscriptionService : ITranscriptionService
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
                         AnsiConsole.MarkupLine("[yellow]Transcription processing canceled.[/]");
-                        break; // Exit the loop if canceled during ProcessAsync
+                        break; 
                     }
                     catch (Exception ex)
                     {
@@ -286,12 +367,12 @@ public class TranscriptionService : ITranscriptionService
                 }
                 try
                 {
-                    await Task.Delay(100, cancellationToken); // Prevent tight loop, honor cancellation
+                    await Task.Delay(100, cancellationToken); 
                 }
                 catch (OperationCanceledException)
                 {
                     AnsiConsole.MarkupLine("[yellow]Task.Delay canceled during live transcription loop.[/]");
-                    break; // Exit loop if Task.Delay is canceled
+                    break; 
                 }
             }
 

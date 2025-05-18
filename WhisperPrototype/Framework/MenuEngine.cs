@@ -93,4 +93,22 @@ public class MenuEngine
 
         return await AnsiConsole.PromptAsync(selectionPrompt);
     }
+
+    public async Task<string> DisplayMainMenuAndGetChoiceAsync()
+    {
+        AnsiConsole.WriteLine(); // Add some spacing for clarity before the prompt
+        var choice = await AnsiConsole.PromptAsync(
+            new SelectionPrompt<string>()
+                .Title("What would you like to do?")
+                .PageSize(10) // Consistent page size
+                .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
+                // Ensure these choices match the switch cases in Program.cs
+                .AddChoices(new[] { 
+                    "Select Model", 
+                    "Process Audio Recordings", 
+                    "Live Transcription", 
+                    "Exit" 
+                }));
+        return choice;
+    }
 }

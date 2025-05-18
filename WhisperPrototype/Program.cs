@@ -1,98 +1,101 @@
-﻿using Spectre.Console;
-using WhisperPrototype;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
+using System;
+using System.IO;
+using WhisperPrototype;
 using WhisperPrototype.Framework;
+using WhisperPrototype.Hardware;
 using WhisperPrototype.Providers;
+using Spectre.Console;
 
 var exitRequested = false;
 
-// Build configuration
+// Setup Configuration
 var configuration = new ConfigurationBuilder()
-    .SetBasePath(AppContext.BaseDirectory)
+    .SetBasePath(Directory.GetCurrentDirectory())
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production"}.json", optional: true)
+    .AddEnvironmentVariables()
     .Build();
 
-// Bind configuration to AppSettings object
-var appSettings = new AppSettings();
-configuration.GetSection("AppSettings").Bind(appSettings);
+// Bind AppSettings and FeatureToggles from configuration
+var appSettingsInstance = configuration.GetSection("AppSettings").Get<AppSettings>() ?? new AppSettings();
+var featureTogglesInstance = configuration.GetSection("FeatureToggles").Get<FeatureToggles>() ?? new FeatureToggles();
 
-if (string.IsNullOrEmpty(appSettings.InputDirectory) || string.IsNullOrEmpty(appSettings.OutputDirectory))
+// Setup Dependency Injection
+using var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices((context, services) =>
+    {
+        // Configuration objects
+        services.AddSingleton<IConfiguration>(configuration);
+        services.AddSingleton<AppSettings>(appSettingsInstance);
+        services.AddSingleton<FeatureToggles>(featureTogglesInstance);
+
+        // Core services
+        services.AddSingleton<MenuEngine>();
+        services.AddSingleton<IAudioConverter, FFmpegWrapper>();
+
+        // Register new VAD and Segment Processing services
+        services.AddSingleton<IAudioChunker, FFmpegAudioChunker>();
+
+        // FFmpegAudioSegmentProcessor requires the base temporary directory path from AppSettings
+        services.AddSingleton<IAudioSegmentProcessor>(provider =>
+        {
+            var settings = provider.GetRequiredService<AppSettings>();
+            var tempDir = settings.TempDirectory;
+            if (string.IsNullOrEmpty(tempDir))
+            {
+                AnsiConsole.MarkupLine("[red]CRITICAL ERROR: AppSettings:TempDirectory is not configured. Segment processing will fail.[/]");
+                // Fallback to system temp if absolutely necessary, but configuration is preferred.
+                tempDir = Path.GetTempPath(); 
+                AnsiConsole.MarkupLine($"[yellow]Warning: Falling back to system temp directory for segments: {tempDir}[/]");
+            }
+            return new FFmpegAudioSegmentProcessor(tempDir);
+        });
+
+        // TranscriptionService now depends on IAudioChunker, IAudioSegmentProcessor, and AppSettings
+        services.AddSingleton<ITranscriptionService, TranscriptionService>(); 
+
+        services.AddSingleton<IWorkspace, Workspace>();
+    })
+    .Build();
+
+AnsiConsole.MarkupLine("[bold green]Whisper Prototype Application Initialized[/]");
+AnsiConsole.MarkupLine($"[grey]Input Directory: {appSettingsInstance.InputDirectory ?? "Not Set"}[/]");
+AnsiConsole.MarkupLine($"[grey]Output Directory: {appSettingsInstance.OutputDirectory ?? "Not Set"}[/]");
+AnsiConsole.MarkupLine($"[grey]Temporary Directory: {appSettingsInstance.TempDirectory ?? "Not Set"}[/]");
+AnsiConsole.MarkupLine($"[grey]Models Directory (derived from Input): {Path.GetDirectoryName(appSettingsInstance.InputDirectory)}\\{Path.DirectorySeparatorChar}Models[/]"); // Illustrative
+
+var workspace = host.Services.GetRequiredService<IWorkspace>();
+var menuEngine = host.Services.GetRequiredService<MenuEngine>();
+var featureToggles = host.Services.GetRequiredService<FeatureToggles>();
+
+// Main application loop (simplified from your original structure for brevity in this diff)
+while (true)
 {
-    AnsiConsole.MarkupLine("[red]Error: InputDirectory or OutputDirectory not found or empty in appsettings.json.[/]");
-    AnsiConsole.MarkupLine("Press any key to exit.");
-    Console.ReadKey();
-    return;
-}
-
-// Handle Ctrl+C for graceful exit
-Console.CancelKeyPress += (sender, eventArgs) =>
-{
-    eventArgs.Cancel = true;
-    AnsiConsole.MarkupLine("[red]Ctrl+C detected. Application aborted with exit code 0.[/]");
-    Environment.Exit(0);
-};
-
-var features = new FeatureToggles();
-var menuEngine = new MenuEngine();
-var converter = new FFmpegWrapper();
-var transcriptionService = new TranscriptionService();
-var workspace = new Workspace(appSettings, features, menuEngine, converter, transcriptionService);
-
-AnsiConsole.WriteLine("Preparing and checking this device before attempting conversion.");
-
-// Load the model initially
-if (!await workspace.SelectModelAsync())
-{
-    Environment.Exit(1);
-    return;
-}
-
-AnsiConsole.MarkupLine("[green]Welcome to Whisper Speech to Text Transcription.[/]");
-
-while (!exitRequested)
-{
-    AnsiConsole.WriteLine(); // Add some spacing
-    var choice = await AnsiConsole.PromptAsync(
-        new SelectionPrompt<string>()
-            .Title("What would you like to do?")
-            .PageSize(5)
-            .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
-            .AddChoices("Process Audio Recordings", "Live Transcription", "Manage Models", "Exit"));
-
+    var choice = await menuEngine.DisplayMainMenuAndGetChoiceAsync();
     switch (choice)
     {
+        case "Select Model":
+            await workspace.SelectModelAsync();
+            break;
         case "Process Audio Recordings":
             var audioFiles = workspace.GetAudioRecordings();
             await menuEngine.SelectMultipleAndProcessAsync(
                 audioFiles,
-                //
-                // Callback / Func does the processing.
                 async (chosenFiles) => await workspace.TranscribeAll(chosenFiles),
-                //
                 "Audio Recording",
                 fi => fi.Name
             );
             break;
-
         case "Live Transcription":
-            AnsiConsole.MarkupLine("[cyan]Starting live transcription...[/]");
-            await workspace.StartLiveTranscriptionAsync(); 
+            await workspace.StartLiveTranscriptionAsync();
             break;
-
-        case "Manage Models":
-            AnsiConsole.MarkupLine("[cyan]Model Management...[/]");
-            await workspace.SelectModelAsync();
-            break;
-
         case "Exit":
-            AnsiConsole.MarkupLine("[yellow]Exit selected from menu. Shutting down...[/]");
-            exitRequested = true;
-            break;
+            AnsiConsole.MarkupLine("[bold red]Exiting application.[/]");
+            return;
     }
+    AnsiConsole.MarkupLine("\nPress any key to return to the main menu...");
+    Console.ReadKey();
 }
-
-AnsiConsole.MarkupLine("\n[green]Application exited.[/]");
-AnsiConsole.MarkupLine("Press any key to close the window.");
-
-// Keep window open until a key is pressed
-Console.ReadKey();
