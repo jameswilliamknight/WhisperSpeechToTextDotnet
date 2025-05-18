@@ -2,10 +2,9 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using NAudio.Wave;
 using Spectre.Console;
-using WhisperPrototype.Entities;
 using WhisperPrototype.Events;
 
-namespace WhisperPrototype.Services;
+namespace WhisperPrototype.Hardware;
 
 /// <summary>
 ///     ⚠️ Warning, this hasn't been tested.

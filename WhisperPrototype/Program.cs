@@ -66,7 +66,7 @@ while (!exitRequested)
                 audioFiles,
                 //
                 // Callback / Func does the processing.
-                async (chosenFiles) => await workspace.Transcribe(chosenFiles),
+                async (chosenFiles) => await workspace.TranscribeAll(chosenFiles),
                 //
                 "Audio Recording",
                 fi => fi.Name

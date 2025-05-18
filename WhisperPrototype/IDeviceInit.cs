@@ -4,7 +4,7 @@ namespace WhisperPrototype;
 
 public interface IWorkspace
 {
-    Task Transcribe(IEnumerable<FileInfo> audioFiles);
+    Task TranscribeAll(IEnumerable<FileInfo> audioFiles);
     FileInfo[] GetAudioRecordings();
     Task StartLiveTranscriptionAsync();
     Task<bool> SelectModelAsync();

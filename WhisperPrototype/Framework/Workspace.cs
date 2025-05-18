@@ -4,10 +4,9 @@ using System.Text;
 using NAudio.Wave;
 using Spectre.Console;
 using Whisper.net;
-using WhisperPrototype.Entities;
 using WhisperPrototype.Events;
+using WhisperPrototype.Hardware;
 using WhisperPrototype.Providers;
-using WhisperPrototype.Services;
 
 namespace WhisperPrototype.Framework;
 
@@ -141,8 +140,14 @@ public class Workspace(
         ModelName = tempModelName;
     }
 
-
-    public async Task Transcribe(IEnumerable<FileInfo> audioFiles)
+    /// <remarks>
+    ///     Could create a <tt>AudioTranscribeOptions</tt> record, and pair FileInfo with a set of [Flags] (an enum) of
+    ///         options to perform.
+    /// 
+    ///     First bit, when [Flags] enum value is equal to '1', that marks that we want to chunk the audio by silence.
+    ///     Minimum threshold of 15 seconds before considering it something new.
+    /// </remarks>
+    public async Task TranscribeAll(IEnumerable<FileInfo> audioFiles)
     {
         if (!IsInitialised)
         {
@@ -150,118 +155,127 @@ public class Workspace(
         }
 
         // Create Whisper factory from the model path
-        using var factory = WhisperFactory.FromPath(ModelPath!);
+        using var speechToTextFactory = WhisperFactory.FromPath(ModelPath!);
 
         // Configure the processor - we'll assume English for now for better performance
+        //
         // You can remove .WithLanguage("en") to enable language detection, but it's slower.
-        // .WithLanguage("auto") also enables detection.
-        await using var processor = factory.CreateBuilder()
-            .WithLanguage("en") // Specify English for faster processing if known
+        //
+        // .WithLanguage("auto") also enables detection, but we specify English avoid processing any
+        //     'language detection' features in the model which could consume processing cycles.
+        //
+        await using var processor = speechToTextFactory.CreateBuilder()
+            .WithLanguage("en")
             .Build();
 
         foreach (var audioFileInfo in audioFiles)
         {
-            var audioFilePath = audioFileInfo.FullName;
-            var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(audioFilePath);
-
-            if (!Directory.Exists(Config.OutputDirectory))
-            {
-                Directory.CreateDirectory(Config.OutputDirectory!);
-            }
-
-            var outputTxtFilePath =
-                Path.Combine(Config.OutputDirectory!, $"{fileNameWithoutExtension}_{ModelName}.txt");
-            var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav");
-
-            AnsiConsole.MarkupLine($"\nProcessing: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
-
-            if (File.Exists(outputTxtFilePath))
-            {
-                AnsiConsole.MarkupLine($"Output file already exists: [yellow]{Markup.Escape(outputTxtFilePath)}[/].");
-
-                var overwrite = await AnsiConsole.ConfirmAsync("Do you want to overwrite it?", defaultValue: false);
-
-                if (overwrite)
-                {
-                    AnsiConsole.MarkupLine($"Deleting existing file: [yellow]{Markup.Escape(outputTxtFilePath)}[/]");
-                    File.Delete(outputTxtFilePath);
-                }
-                else
-                {
-                    AnsiConsole.MarkupLine($"Skipping processing for: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
-                    continue;
-                }
-            }
-
-            try
-            {
-                AnsiConsole.MarkupLine("Converting MP3 to WAV using ffmpeg...");
-                
-                converter.ToWav(audioFilePath, tempWavFilePath);
-                
-                AnsiConsole.MarkupLine("Conversion complete.");
-                AnsiConsole.MarkupLine("Starting transcription...");
-
-                if (!File.Exists(tempWavFilePath))
-                {
-                    throw new FileNotFoundException(
-                        $"ffmpeg failed to create the temporary WAV file: {tempWavFilePath}");
-                }
-
-                var sw = new Stopwatch();
-                sw.Start();
-
-                await using var audioStream = File.OpenRead(tempWavFilePath);
-                var transcription = new StringBuilder();
-
-                await foreach (var segment in processor.ProcessAsync(audioStream))
-                {
-                    transcription.Append(segment.Text);
-                }
-
-                sw.Stop();
-
-                var audioDuration = FFmpegWrapper.GetAudioDuration(tempWavFilePath);
-                if (audioDuration == null)
-                {
-                    AnsiConsole.MarkupLine("[red]Error:[/] Could not determine audio duration for calculations.");
-                }
-                else
-                {
-                    var ratio = sw.Elapsed.TotalSeconds / audioDuration.Value.TotalSeconds;
-                    var audioDurationText = audioDuration.Value.TotalSeconds.ToString("F2");
-                    var elapsedText = sw.Elapsed.TotalSeconds.ToString("F2");
-                    var ratioText = ratio.ToString("F2");
-                    var speedColor = ratio < 1 ? "green" : "red";
-
-                    // Construct the speed details part with its own markup, e.g., "[bold green]0.75x speed[/]"
-                    var speedDetailsMarkup = $"[bold {speedColor}]{ratioText}x speed[/]";
-
-                    AnsiConsole.MarkupLine(
-                        $"Transcription of [green]{audioDurationText}s[/] audio completed in [yellow]{elapsedText}s[/] ({speedDetailsMarkup})."
-                    );
-                }
-
-                await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
-                AnsiConsole.MarkupLine($"Transcription saved to: [yellow]{Markup.Escape(outputTxtFilePath)}[/]");
-                AnsiConsole.WriteLine(transcription.ToString());
-                AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {Markup.Escape(audioFileInfo.Name)} ---");
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[red]Error processing {Markup.Escape(audioFileInfo.Name)}:[/] {Markup.Escape(ex.Message)}");
-            }
-            finally
-            {
-                if (File.Exists(tempWavFilePath))
-                {
-                    File.Delete(tempWavFilePath);
-                }
-            }
+            await TranscribeSingle(audioFileInfo, processor);
         }
 
         AnsiConsole.MarkupLine("\nAll files processed.");
+    }
+
+    private async Task TranscribeSingle(FileInfo audioFileInfo, WhisperProcessor processor)
+    {
+        var audioFilePath = audioFileInfo.FullName;
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(audioFilePath);
+
+        if (!Directory.Exists(Config.OutputDirectory))
+        {
+            Directory.CreateDirectory(Config.OutputDirectory!);
+        }
+
+        var outputTxtFilePath =
+            Path.Combine(Config.OutputDirectory!, $"{fileNameWithoutExtension}_{ModelName}.txt");
+        var tempWavFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.wav");
+
+        AnsiConsole.MarkupLine($"\nProcessing: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
+
+        if (File.Exists(outputTxtFilePath))
+        {
+            AnsiConsole.MarkupLine($"Output file already exists: [yellow]{Markup.Escape(outputTxtFilePath)}[/].");
+
+            var overwrite = await AnsiConsole.ConfirmAsync("Do you want to overwrite it?", defaultValue: false);
+
+            if (overwrite)
+            {
+                AnsiConsole.MarkupLine($"Deleting existing file: [yellow]{Markup.Escape(outputTxtFilePath)}[/]");
+                File.Delete(outputTxtFilePath);
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"Skipping processing for: [blue]{Markup.Escape(audioFileInfo.Name)}[/]");
+                return;
+            }
+        }
+
+        try
+        {
+            AnsiConsole.MarkupLine("Converting MP3 to WAV using ffmpeg...");
+                
+            converter.ToWav(audioFilePath, tempWavFilePath);
+                
+            AnsiConsole.MarkupLine("Conversion complete.");
+            AnsiConsole.MarkupLine("Starting transcription...");
+
+            if (!File.Exists(tempWavFilePath))
+            {
+                throw new FileNotFoundException(
+                    $"ffmpeg failed to create the temporary WAV file: {tempWavFilePath}");
+            }
+
+            var sw = new Stopwatch();
+            sw.Start();
+
+            await using var audioStream = File.OpenRead(tempWavFilePath);
+            var transcription = new StringBuilder();
+
+            await foreach (var segment in processor.ProcessAsync(audioStream))
+            {
+                transcription.Append(segment.Text);
+            }
+
+            sw.Stop();
+
+            var audioDuration = FFmpegWrapper.GetAudioDuration(tempWavFilePath);
+            if (audioDuration == null)
+            {
+                AnsiConsole.MarkupLine("[red]Error:[/] Could not determine audio duration for calculations.");
+            }
+            else
+            {
+                var ratio = sw.Elapsed.TotalSeconds / audioDuration.Value.TotalSeconds;
+                var audioDurationText = audioDuration.Value.TotalSeconds.ToString("F2");
+                var elapsedText = sw.Elapsed.TotalSeconds.ToString("F2");
+                var ratioText = ratio.ToString("F2");
+                var speedColor = ratio < 1 ? "green" : "red";
+
+                // Construct the speed details part with its own markup, e.g., "[bold green]0.75x speed[/]"
+                var speedDetailsMarkup = $"[bold {speedColor}]{ratioText}x speed[/]";
+
+                AnsiConsole.MarkupLine(
+                    $"Transcription of [green]{audioDurationText}s[/] audio completed in [yellow]{elapsedText}s[/] ({speedDetailsMarkup})."
+                );
+            }
+
+            await File.WriteAllTextAsync(outputTxtFilePath, transcription.ToString());
+            AnsiConsole.MarkupLine($"Transcription saved to: [yellow]{Markup.Escape(outputTxtFilePath)}[/]");
+            AnsiConsole.WriteLine(transcription.ToString());
+            AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {Markup.Escape(audioFileInfo.Name)} ---");
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error processing {Markup.Escape(audioFileInfo.Name)}:[/] {Markup.Escape(ex.Message)}");
+        }
+        finally
+        {
+            if (File.Exists(tempWavFilePath))
+            {
+                File.Delete(tempWavFilePath);
+            }
+        }
     }
 
     public FileInfo[] GetAudioRecordings()

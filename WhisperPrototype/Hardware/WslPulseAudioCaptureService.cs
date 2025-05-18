@@ -2,10 +2,9 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using NAudio.Wave;
 using Spectre.Console;
-using WhisperPrototype.Entities;
 using WhisperPrototype.Events;
 
-namespace WhisperPrototype.Services;
+namespace WhisperPrototype.Hardware;
 
 /// <summary>
 ///     Consider making this a singleton with a semaphore, as we will be creating a web server soon, with only one audio
