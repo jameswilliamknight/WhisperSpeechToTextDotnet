@@ -1,6 +1,7 @@
 ﻿using Spectre.Console;
 using WhisperPrototype;
 using Microsoft.Extensions.Configuration;
+using WhisperPrototype.Framework;
 
 var exitRequested = false;
 

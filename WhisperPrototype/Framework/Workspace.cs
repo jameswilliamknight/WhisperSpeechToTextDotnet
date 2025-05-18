@@ -1,11 +1,15 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using NAudio.Wave;
 using Spectre.Console;
 using Whisper.net;
-using NAudio.Wave;
+using WhisperPrototype.Entities;
+using WhisperPrototype.Events;
+using WhisperPrototype.Providers;
+using WhisperPrototype.Services;
 
-namespace WhisperPrototype;
+namespace WhisperPrototype.Framework;
 
 public class Workspace(AppSettings appConfig, FeatureToggles featureToggles, MenuEngine menuEngine) : IWorkspace
 {

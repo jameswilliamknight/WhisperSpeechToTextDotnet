@@ -1,4 +1,4 @@
-namespace WhisperPrototype;
+namespace WhisperPrototype.Providers;
 
 public interface IAudioConverter
 {

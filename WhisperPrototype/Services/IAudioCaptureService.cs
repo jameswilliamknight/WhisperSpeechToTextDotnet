@@ -1,6 +1,8 @@
 using NAudio.Wave;
+using WhisperPrototype.Entities;
+using WhisperPrototype.Events;
 
-namespace WhisperPrototype;
+namespace WhisperPrototype.Services;
 
 /// <summary>
 /// Provides an abstraction for capturing audio from input devices.

@@ -1,4 +1,4 @@
-namespace WhisperPrototype;
+namespace WhisperPrototype.Events;
 
 public class TranscribedDataEventArgs(string transcribedText) : EventArgs
 {

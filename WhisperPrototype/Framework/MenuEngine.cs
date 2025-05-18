@@ -1,6 +1,6 @@
 using Spectre.Console;
 
-namespace WhisperPrototype;
+namespace WhisperPrototype.Framework;
 
 public class MenuEngine
 {

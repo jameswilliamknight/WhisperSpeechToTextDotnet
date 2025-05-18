@@ -1,3 +1,5 @@
+using WhisperPrototype.Events;
+
 namespace WhisperPrototype;
 
 public interface IWorkspace

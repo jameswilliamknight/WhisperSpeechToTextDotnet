@@ -1,4 +1,4 @@
-namespace WhisperPrototype;
+namespace WhisperPrototype.Events;
 
 /// <summary>
 ///     Event arguments for when audio data is available.

@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Spectre.Console;
 
-namespace WhisperPrototype;
+namespace WhisperPrototype.Providers;
 
 public class FFmpegWrapper : IAudioConverter
 {
