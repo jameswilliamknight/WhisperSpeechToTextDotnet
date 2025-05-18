@@ -65,7 +65,7 @@ AnsiConsole.MarkupLine("[bold green]Whisper Prototype Application Initialized[/]
 AnsiConsole.MarkupLine($"[grey]Input Directory: {appSettingsInstance.InputDirectory ?? "Not Set"}[/]");
 AnsiConsole.MarkupLine($"[grey]Output Directory: {appSettingsInstance.OutputDirectory ?? "Not Set"}[/]");
 AnsiConsole.MarkupLine($"[grey]Temporary Directory: {appSettingsInstance.TempDirectory ?? "Not Set"}[/]");
-AnsiConsole.MarkupLine($"[grey]Models Directory (derived from Input): {Path.GetDirectoryName(appSettingsInstance.InputDirectory)}\\{Path.DirectorySeparatorChar}Models[/]"); // Illustrative
+AnsiConsole.MarkupLine($"[grey]Models Directory (derived from Input): {Path.Combine(Path.GetDirectoryName(appSettingsInstance.InputDirectory) ?? string.Empty, "Models")}[/]"); // Illustrative
 
 var workspace = host.Services.GetRequiredService<IWorkspace>();
 var menuEngine = host.Services.GetRequiredService<MenuEngine>();
@@ -96,6 +96,6 @@ while (true)
             AnsiConsole.MarkupLine("[bold red]Exiting application.[/]");
             return;
     }
-    AnsiConsole.MarkupLine("\nPress any key to return to the main menu...");
-    Console.ReadKey();
+    // AnsiConsole.MarkupLine("\nPress any key to return to the main menu...");
+    // Console.ReadKey();
 }

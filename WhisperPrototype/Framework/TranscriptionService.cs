@@ -138,12 +138,19 @@ public class TranscriptionService : ITranscriptionService
             for (var i = 0; i < speechSegments.Count; i++)
             {
                 var segment = speechSegments[i];
+                // Determine the output path for this specific segment's transcript
+                var outputDirectoryName = Path.GetDirectoryName(outputTxtFilePath);
+                var baseOutputFileName = Path.GetFileNameWithoutExtension(outputTxtFilePath); // e.g., "myaudio_ggml-medium.en.bin"
+                var segmentTxtFileName = $"{baseOutputFileName}_segment-{i + 1:D4}.txt";
+                var segmentTxtFilePath = Path.Combine(outputDirectoryName ?? string.Empty, segmentTxtFileName);
+                
+                bool firstResultInSegment = true; // To manage Write vs Append for the segment file
+
                 AnsiConsole.MarkupLine($"[blue]     Transcribing segment {i + 1}/{speechSegments.Count}: {segment.StartTime:g} to {segment.EndTime:g} (Duration: {segment.Duration:g})[/]");
                 var segmentStopwatch = Stopwatch.StartNew();
                 try
                 {
                     // Get stream for the current segment
-                    // The FFmpegAudioSegmentProcessor will create a temp file for this segment and clean it up.
                     await using var segmentStream = await _segmentProcessor.GetSegmentStreamAsync(tempWavFilePath, segment, i, speechSegments.Count);
 
                     if (segmentStream == Stream.Null || segmentStream.Length == 0) 
@@ -155,7 +162,29 @@ public class TranscriptionService : ITranscriptionService
                     await foreach (var result in processor.ProcessAsync(segmentStream))
                     {
                         overallTranscription.Append(result.Text);
+                        // No longer using currentSegmentTranscription
+
+                        if (!string.IsNullOrWhiteSpace(result.Text))
+                        {
+                            var textToSaveAndPrint = result.Text.Trim();
+                            AnsiConsole.MarkupLine($"[#8B8000]       Segment text: {Markup.Escape(textToSaveAndPrint)}[/]");
+
+                            // Write/Append this part to the segment's transcript file
+                            if (firstResultInSegment)
+                            {
+                                await File.WriteAllTextAsync(segmentTxtFilePath, textToSaveAndPrint + Environment.NewLine);
+                                firstResultInSegment = false;
+                            }
+                            else
+                            {
+                                await File.AppendAllTextAsync(segmentTxtFilePath, textToSaveAndPrint + Environment.NewLine);
+                            }
+                        }
                     }
+
+                    // The block for saving currentSegmentTranscription is removed from here.
+                    // Logging of individual segment file saving is also removed as it's implicit with the console print.
+
                     totalAudioProcessedDurationSeconds += segment.Duration.TotalSeconds;
                     segmentStopwatch.Stop();
                     AnsiConsole.MarkupLine($"[green]     Segment {i + 1} transcribed in {segmentStopwatch.ElapsedMilliseconds}ms. Appended to main transcript.[/]");
@@ -183,9 +212,9 @@ public class TranscriptionService : ITranscriptionService
                 $"[green]   Transcription of {speechSegments.Count} segments (total speech: {audioDurationText}s) completed in {elapsedText}s ({speedDetailsMarkup}).[/]"
             );
 
-            await File.WriteAllTextAsync(outputTxtFilePath, overallTranscription.ToString());
+            await File.WriteAllTextAsync(outputTxtFilePath, overallTranscription.ToString().Trim());
             AnsiConsole.MarkupLine($"[green]   Full transcription saved to: {Markup.Escape(outputTxtFilePath)}[/]");
-            AnsiConsole.WriteLine(Markup.Escape(overallTranscription.ToString()));
+            AnsiConsole.WriteLine(Markup.Escape(overallTranscription.ToString().Trim()));
             AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {originalFileNameForLogging} ---");
         }
         catch (Exception ex)

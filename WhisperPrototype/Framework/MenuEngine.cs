@@ -39,11 +39,8 @@ public class MenuEngine
         {
             AnsiConsole.MarkupLine($"\n[green]Processing {itemsChosen.Count} selected {itemTypeDescription.ToLower()}(s)...[/]");
             await processAction(itemsChosen);
-            AnsiConsole.MarkupLine($"\n[green]Selected {itemTypeDescription.ToLower()}(s) processed.[/]");
+            AnsiConsole.MarkupLine($"[green]Selected {itemTypeDescription.ToLower()}(s) processed.[/]");
         }
-
-        AnsiConsole.MarkupLine("Press any key to return to the main menu.");
-        Console.ReadKey();
     }
 
     /// <param name="items">Menu items to multi-select from</param>
