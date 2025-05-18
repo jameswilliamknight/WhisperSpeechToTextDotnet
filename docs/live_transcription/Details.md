@@ -46,13 +46,8 @@ The `Workspace.cs` class is central to the live transcription process, orchestra
 
 ## 3. Audio Input Abstraction: `IAudioCaptureService`
 
-To support multiple platforms, an `IAudioCaptureService` interface defines the contract for audio capture operations. Key elements include:
+To support multiple platforms, an `IAudioCaptureService` interface defines the contract for audio capture operations.
 
--   `GetAvailableDevicesAsync()`: Lists available audio input devices.
--   `StartCaptureAsync(string deviceId, WaveFormat waveFormat)`: Begins capturing audio.
--   `StopCaptureAsync()`: Terminates audio capture.
--   `AudioDataAvailable` event: Raised when new audio data is ready.
--   `CurrentWaveFormat` property: Provides the format of the captured audio.
 
 ### 3.1. WSL Audio Capture: `WslPulseAudioCaptureService.cs`
 
