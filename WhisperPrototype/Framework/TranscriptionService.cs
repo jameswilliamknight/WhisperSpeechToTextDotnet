@@ -16,19 +16,12 @@ using WhisperPrototype.Providers;
 
 namespace WhisperPrototype.Framework;
 
-public class TranscriptionService : ITranscriptionService
+public class TranscriptionService(
+    IAudioChunker audioChunker,
+    IAudioSegmentProcessor segmentProcessor,
+    AppSettings appSettings)
+    : ITranscriptionService
 {
-    private readonly IAudioChunker _audioChunker;
-    private readonly IAudioSegmentProcessor _segmentProcessor;
-    private readonly AppSettings _appSettings; // To access VAD parameters
-
-    public TranscriptionService(IAudioChunker audioChunker, IAudioSegmentProcessor segmentProcessor, AppSettings appSettings)
-    {
-        _audioChunker = audioChunker;
-        _segmentProcessor = segmentProcessor;
-        _appSettings = appSettings; // Store AppSettings to get VAD parameters
-    }
-
     public async Task TranscribeFileAsync(
         FileInfo audioFileInfo,
         WhisperProcessor processor,
@@ -102,12 +95,12 @@ public class TranscriptionService : ITranscriptionService
             AnsiConsole.MarkupLine($"[cyan]   Step 2: Detecting speech segments for {originalFileNameForLogging}...[/]");
             var vadParameters = new VADParameters // Populate from AppSettings
             {
-                SilenceDetectionNoiseDb = _appSettings.SilenceDetectionNoiseDb,
-                MinSilenceDurationSeconds = _appSettings.MinSilenceDurationSeconds,
-                MinSpeechSegmentSeconds = _appSettings.MinSpeechSegmentSeconds,
-                SegmentPaddingSeconds = _appSettings.SegmentPaddingSeconds
+                SilenceDetectionNoiseDb = appSettings.SilenceDetectionNoiseDb,
+                MinSilenceDurationSeconds = appSettings.MinSilenceDurationSeconds,
+                MinSpeechSegmentSeconds = appSettings.MinSpeechSegmentSeconds,
+                SegmentPaddingSeconds = appSettings.SegmentPaddingSeconds
             };
-            List<AudioSegment> speechSegments = await _audioChunker.DetectSpeechSegmentsAsync(tempWavFilePath, vadParameters);
+            List<AudioSegment> speechSegments = await audioChunker.DetectSpeechSegmentsAsync(tempWavFilePath, vadParameters);
 
             // Serialize and save the detected segments to JSON
             try
@@ -151,7 +144,7 @@ public class TranscriptionService : ITranscriptionService
                 try
                 {
                     // Get stream for the current segment
-                    await using var segmentStream = await _segmentProcessor.GetSegmentStreamAsync(tempWavFilePath, segment, i, speechSegments.Count);
+                    await using var segmentStream = await segmentProcessor.GetSegmentStreamAsync(tempWavFilePath, segment, i, speechSegments.Count);
 
                     if (segmentStream == Stream.Null || segmentStream.Length == 0) 
                     { 
@@ -274,6 +267,7 @@ public class TranscriptionService : ITranscriptionService
         using var whisperFactory = WhisperFactory.FromPath(modelPath);
         await using var processor = whisperFactory.CreateBuilder()
             .WithLanguage("en")
+            //.WithCuda()
             .Build();
 
         AnsiConsole.MarkupLine($"[green]Whisper.net ready with language: en[/]");
