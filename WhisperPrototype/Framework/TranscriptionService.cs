@@ -1,15 +1,9 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.Json; // For serializing AudioSegment list
-using System.Threading.Tasks;
 using Spectre.Console;
 using Whisper.net;
 using WhisperPrototype.Hardware; // For IAudioConverter
-using System.Threading;
 using NAudio.Wave;
 using WhisperPrototype.Events;
 using WhisperPrototype.Providers;
@@ -100,7 +94,7 @@ public class TranscriptionService(
                 MinSpeechSegmentSeconds = appSettings.MinSpeechSegmentSeconds,
                 SegmentPaddingSeconds = appSettings.SegmentPaddingSeconds
             };
-            List<AudioSegment> speechSegments = await audioChunker.DetectSpeechSegmentsAsync(tempWavFilePath, vadParameters);
+            var speechSegments = await audioChunker.DetectSpeechSegmentsAsync(tempWavFilePath, vadParameters);
 
             // Serialize and save the detected segments to JSON
             try
@@ -137,7 +131,7 @@ public class TranscriptionService(
                 var segmentTxtFileName = $"{baseOutputFileName}_segment-{i + 1:D4}.txt";
                 var segmentTxtFilePath = Path.Combine(outputDirectoryName ?? string.Empty, segmentTxtFileName);
                 
-                bool firstResultInSegment = true; // To manage Write vs Append for the segment file
+                var firstResultInSegment = true; // To manage Write vs Append for the segment file
 
                 AnsiConsole.MarkupLine($"[blue]     Transcribing segment {i + 1}/{speechSegments.Count}: {segment.StartTime:g} to {segment.EndTime:g} (Duration: {segment.Duration:g})[/]");
                 var segmentStopwatch = Stopwatch.StartNew();
@@ -300,7 +294,7 @@ public class TranscriptionService(
         var audioBuffer = new MemoryStream();
         var transcriptionBuffer = new StringBuilder();
 
-        const float desiredChunkDurationSeconds = 2.0f;
+        const float desiredChunkDurationSeconds = 5.0f;
         const int bytesPerSample = 2; // 16-bit audio
         const int channels = 1; // Mono audio
         const int sampleRate = 16000; // 16kHz
@@ -310,7 +304,7 @@ public class TranscriptionService(
         Func<object, AudioDataAvailableEventArgs, Task> audioDataHandler = async (_, args) =>
         {
             if (args.BytesRecorded <= 0) return;
-            await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded);
+            await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded, cancellationToken);
             if (featureToggles.LogAudioDataReceivedMessages)
             {
                 AnsiConsole.MarkupLine(
@@ -334,7 +328,7 @@ public class TranscriptionService(
                     audioBuffer.Seek(0, SeekOrigin.Begin);
 
                     var tempBuffer = new byte[audioBuffer.Length];
-                    await audioBuffer.ReadAsync(tempBuffer, 0, tempBuffer.Length);
+                    await audioBuffer.ReadExactlyAsync(tempBuffer, 0, tempBuffer.Length, cancellationToken);
                     audioBuffer.SetLength(0);
                     audioBuffer.Seek(0, SeekOrigin.Begin);
 

@@ -1,19 +1,25 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
-using System;
-using System.IO;
+using System.Reflection;
 using WhisperPrototype;
 using WhisperPrototype.Framework;
-using WhisperPrototype.Hardware;
 using WhisperPrototype.Providers;
 using Spectre.Console;
 
-var exitRequested = false;
+// Get the directory where the executing assembly (your .dll) is located.
+var assemblyLocation = Assembly.GetExecutingAssembly().Location;
+var assemblyDirectory = Path.GetDirectoryName(assemblyLocation);
 
-// Setup Configuration
+// Fallback if Path.GetDirectoryName returns null (should be rare for a loaded assembly)
+if (string.IsNullOrEmpty(assemblyDirectory))
+{
+    assemblyDirectory = Directory.GetCurrentDirectory(); // Fallback, but log a warning
+    Console.Error.WriteLine($"Warning: Could not determine assembly directory. Using current working directory: {assemblyDirectory}");
+}
+
 var configuration = new ConfigurationBuilder()
-    .SetBasePath(Directory.GetCurrentDirectory())
+    .SetBasePath(assemblyDirectory) // <--- THIS IS THE KEY CHANGE
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
     .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production"}.json", optional: true)
     .AddEnvironmentVariables()
@@ -29,8 +35,8 @@ using var host = Host.CreateDefaultBuilder(args)
     {
         // Configuration objects
         services.AddSingleton<IConfiguration>(configuration);
-        services.AddSingleton<AppSettings>(appSettingsInstance);
-        services.AddSingleton<FeatureToggles>(featureTogglesInstance);
+        services.AddSingleton(appSettingsInstance);
+        services.AddSingleton(featureTogglesInstance);
 
         // Core services
         services.AddSingleton<MenuEngine>();

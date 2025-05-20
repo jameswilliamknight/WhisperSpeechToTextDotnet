@@ -1,8 +1,4 @@
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
 using Whisper.net;
-using System.Threading;
 using WhisperPrototype.Hardware;
 using WhisperPrototype.Providers;
 
