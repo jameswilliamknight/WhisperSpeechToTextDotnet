@@ -12,6 +12,23 @@ This project is open source to expand my portfolio of work. I didn't know what k
 
 _Example uses Ubuntu on WSL on Windows 11, but the same will need to be applied to a Raspberry Pi 5 (8GB, 16GB)_
 
+Do this if you've already installed via `install-cuda-wsl-ubuntu-v2.sh`:
+```sh
+
+## CUDA Toolkit 12-5 installation script finished.
+## ---------------------------------------------------------------------
+## IMPORTANT NEXT STEPS:
+## 1. Close and REOPEN your WSL terminal, or run 'source /etc/profile.d/cuda_env.sh'
+##    to apply the new environment variables.
+## 2. Verify CUDA installation with: nvcc --version
+##    This should show the CUDA compiler version (e.g., 12-5).
+## 3. Remember: 'nvidia-smi' command will NOT work inside WSL2 to show GPU details.
+##    Run 'nvidia-smi' on your Windows Command Prompt or PowerShell.
+## 4. Ensure your Windows NVIDIA drivers are up to date for WSL2 GPU support.
+## ---------------------------------------------------------------------
+source /etc/profile.d/cuda_env.sh
+```
+
 ```sh
 sudo apt update
 sudo apt install ffmpeg

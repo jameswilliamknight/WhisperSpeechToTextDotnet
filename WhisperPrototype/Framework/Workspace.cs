@@ -211,7 +211,9 @@ public class Workspace(
         }
 
         // Still looking for .mp3 files specifically, but method name is more generic for future expansion.
-        var audioFilePaths = Directory.GetFiles(Config.InputDirectory, "*.mp3");
+        var audioFilePathsM4a = Directory.GetFiles(Config.InputDirectory, "*.m4a");
+        var audioFilePathsMp3 = Directory.GetFiles(Config.InputDirectory, "*.mp3");
+        var audioFilePaths = audioFilePathsM4a.Concat(audioFilePathsMp3);
         var audioFileInfos = audioFilePaths.Select(path => new FileInfo(path)).ToList();
 
         if (!audioFileInfos.Any())
