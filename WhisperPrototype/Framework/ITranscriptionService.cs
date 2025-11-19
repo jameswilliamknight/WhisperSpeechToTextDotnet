@@ -28,6 +28,7 @@ public interface ITranscriptionService
         IAudioCaptureService audioCaptureService,
         Func<AudioInputDevice, Task<AudioInputDevice>> selectInputDeviceAsync,
         Action<string> onSegmentTranscribed,
+        Action<int, string>? onWindowTranscribed,
         string? outputDirectory,
         string modelName,
         CancellationToken cancellationToken

@@ -23,8 +23,17 @@ namespace WhisperPrototype
         public string? LiveTranscriptionsDirectory { get; set; }
         public string? TempDirectory { get; set; }
 
+        // Model Management
+        public string? ActiveModelPath { get; set; }
+
         // Output verbosity
         public VerbosityLevel Verbosity { get; set; } = VerbosityLevel.Normal; // Default to clean output
+
+        // TUI Mode Settings
+        public bool LiveUseTUIMode { get; set; } = false;
+        public int LiveTUIMaxVisibleStreams { get; set; } = 3;
+        public int LiveTUIStreamHeight { get; set; } = 6;
+        public int LiveTUIConsolidatedHeight { get; set; } = 4;
 
         // VAD Parameters for splitting by silence
         public string SilenceDetectionNoiseDb { get; set; } = "-30dB"; // Default to -30dB
@@ -33,8 +42,8 @@ namespace WhisperPrototype
         public double SegmentPaddingSeconds { get; set; } = 0.15;      // Default to 0.15 seconds padding on each side
 
         // Live transcription overlapping window settings
-        public float LiveWindowDurationSeconds { get; set; } = 10.0f;
-        public float LiveAdvanceIntervalSeconds { get; set; } = 2.0f;
+        public float LiveWindowDurationSeconds { get; set; } = 15.0f;
+        public float LiveAdvanceIntervalSeconds { get; set; } = 5.0f;
 
         // Stitching algorithm selection and parameters
         public string LiveStitchingAlgorithm { get; set; } = "BoundaryWeighted"; // "BoundaryWeighted", "Simple"

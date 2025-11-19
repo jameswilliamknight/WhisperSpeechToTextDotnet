@@ -28,5 +28,9 @@
     <ItemGroup>
       <Folder Include="Transcriptions\" />
     </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Include="Resources\models.json" />
+    </ItemGroup>
     
 </Project>

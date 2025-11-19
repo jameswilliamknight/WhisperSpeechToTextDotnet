@@ -1,0 +1,97 @@
+{
+  "models": [
+    {
+      "name": "tiny",
+      "filename": "ggml-tiny.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+      "size": 78538688,
+      "sha256": "bd577a113a864445d4c299885e0cb97d4ba92b5f",
+      "description": "Fastest, lowest accuracy",
+      "language": "multilingual"
+    },
+    {
+      "name": "tiny.en",
+      "filename": "ggml-tiny.en.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
+      "size": 78544258,
+      "sha256": "c78c86eb1a8faa21b369bcd33207cc90d64ae9df",
+      "description": "English-only, fastest",
+      "language": "english"
+    },
+    {
+      "name": "base",
+      "filename": "ggml-base.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+      "size": 147964211,
+      "sha256": "465707469ff3a37a2b9b8d8f89f2f99de7299dac",
+      "description": "Good balance, recommended",
+      "language": "multilingual",
+      "recommended": true
+    },
+    {
+      "name": "base.en",
+      "filename": "ggml-base.en.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+      "size": 147951465,
+      "sha256": "137c40403d78fd54d454da0f9bd998f78703390c",
+      "description": "English-only, good balance",
+      "language": "english"
+    },
+    {
+      "name": "small",
+      "filename": "ggml-small.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+      "size": 488652231,
+      "sha256": "55356645c2b361a969dfd0ef2c5a50d530afd8d5",
+      "description": "Better accuracy",
+      "language": "multilingual"
+    },
+    {
+      "name": "small.en",
+      "filename": "ggml-small.en.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+      "size": 488623583,
+      "sha256": "db8a495a91d927739e50b3fc1cc4c6b8f6c2d022",
+      "description": "English-only, better accuracy",
+      "language": "english"
+    },
+    {
+      "name": "medium",
+      "filename": "ggml-medium.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+      "size": 1533841291,
+      "sha256": "fd9727b6e1217c2f614f9b698455c4ffd82463b4",
+      "description": "High accuracy",
+      "language": "multilingual"
+    },
+    {
+      "name": "medium.en",
+      "filename": "ggml-medium.en.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
+      "size": 1533812643,
+      "sha256": "8c30f0e44ce9560643ebd10bbe50cd20eafd3723",
+      "description": "English-only, high accuracy",
+      "language": "english"
+    },
+    {
+      "name": "large-v3",
+      "filename": "ggml-large-v3.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
+      "size": 3094102783,
+      "sha256": "ad82bf6a9043ceed055076d0fd39f5f186ff8062",
+      "description": "Best accuracy (current)",
+      "language": "multilingual"
+    },
+    {
+      "name": "large-v3-turbo",
+      "filename": "ggml-large-v3-turbo.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+      "size": 1620141057,
+      "sha256": "4af2b29d7ec73d781377bfd1758ca957a807e941",
+      "description": "Best balance (newest, Oct 2024)",
+      "language": "multilingual",
+      "recommended": true
+    }
+  ]
+}
+

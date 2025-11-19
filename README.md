@@ -13,6 +13,7 @@ This project is open source to expand my portfolio of work. I didn't know what k
 _Example uses Ubuntu on WSL on Windows 11, but the same will need to be applied to a Raspberry Pi 5 (8GB, 16GB)_
 
 Do this if you've already installed via `install-cuda-wsl-ubuntu-v2.sh`:
+
 ```sh
 
 ## CUDA Toolkit 12-5 installation script finished.
@@ -137,3 +138,14 @@ I must not fear  fear is the mind killer  There is the little death that brings 
     -   Is Whisper.cpp processing getting in the way of capturing the audio input stream? Is multi-threading done properly?
     -   Am I leveraging the GPU? Proof?
     -   Do I need to leverage more multi-threading / cpu cores, tap into more performance?
+
+
+
+TODO: Visualise sliding windows
+```
+Time:   0s    5s    10s   15s   20s   25s   30s
+Stream1: [===========●●●●●●●●●●●===============]
+Stream2:      [===========●●●●●●●●●●●===========]
+Stream3:           [===========●●●●●●●●●●●=======]
+         ●●● = All 3 active (10s overlap period)
+```

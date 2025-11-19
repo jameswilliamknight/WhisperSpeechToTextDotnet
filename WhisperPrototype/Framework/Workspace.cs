@@ -5,18 +5,21 @@ using NAudio.Wave;
 using Spectre.Console;
 using Whisper.net;
 using WhisperPrototype.Events;
+using WhisperPrototype.Framework.TUI;
 using WhisperPrototype.Hardware;
 using WhisperPrototype.Providers;
 
 namespace WhisperPrototype.Framework;
 
+#pragma warning disable CS9113 // Parameter is unread
 public class Workspace(
     AppSettings appConfig,
     FeatureToggles featureToggles,
-    MenuEngine menuEngine,
+    MenuEngine menuEngine,  // Injected for DI but not used directly in this class
     IAudioConverter converter,
     ITranscriptionService transcriptionService)
     : IWorkspace
+#pragma warning restore CS9113
 {
     private string? ModelPath { get; set; }
     private string? ModelName { get; set; }
@@ -73,70 +76,18 @@ public class Workspace(
 
     public async Task<bool> SelectModelAsync()
     {
-        string modelDirectory;
-
-        if (!string.IsNullOrEmpty(Config.ModelsDirectory))
+        // Check if an active model is set in config
+        if (!string.IsNullOrEmpty(Config.ActiveModelPath) && File.Exists(Config.ActiveModelPath))
         {
-            modelDirectory = Config.ModelsDirectory;
-        }
-        else
-        {
-            // Fallback: Derive from InputDirectory
-            if (string.IsNullOrEmpty(Config.InputDirectory))
-            {
-                AnsiConsole.MarkupLine("[red]Error:[/] InputDirectory is not configured. Cannot determine the Models directory path.");
-                AnsiConsole.MarkupLine("[yellow]Please configure your directories first.[/]");
-                await Task.Delay(2000);
-                return false;
-            }
-
-            var baseDirectoryFromConfig = Path.GetDirectoryName(Config.InputDirectory);
-            if (string.IsNullOrEmpty(baseDirectoryFromConfig))
-            {
-                AnsiConsole.MarkupLine($"[red]Error:[/] Could not determine a valid parent directory from the configured InputDirectory: [yellow]{Config.InputDirectory}[/]. Cannot locate Models directory.");
-                AnsiConsole.MarkupLine("[yellow]Please configure your directories first.[/]");
-                await Task.Delay(2000);
-                return false;
-            }
-            modelDirectory = Path.Combine(baseDirectoryFromConfig, Constants.ModelsDirectoryName);
+            LoadModel(new FileInfo(Config.ActiveModelPath));
+            return true;
         }
 
-        if (!Directory.Exists(modelDirectory))
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] Model directory not found: [yellow]" + modelDirectory + "[/]");
-            AnsiConsole.MarkupLine("[yellow]Please ensure the models directory exists and contains model files.[/]");
-            await Task.Delay(2000);
-            return false;
-        }
-
-        var modelFiles = Directory.GetFiles(modelDirectory)
-            .Select(f => new FileInfo(f))
-            .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
-            .OrderBy(f => f.Name)
-            .ToList();
-
-        if (modelFiles.Count == 0)
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] No model files found in: [yellow]" + modelDirectory + "[/]");
-            AnsiConsole.MarkupLine("[yellow]Please download or add model files to this directory.[/]");
-            await Task.Delay(2000);
-            return false;
-        }
-
-        var selectedModelFile = await menuEngine.PromptChooseSingleFile(
-            modelFiles,
-            "Please select a [green]model file[/] to use:",
-            f => f.Name
-        );
-
-        if (selectedModelFile == null)
-        {
-            AnsiConsole.MarkupLine("[yellow]Model selection cancelled.[/]");
-            return false;
-        }
-
-        LoadModel(selectedModelFile);
-        return true;
+        // No active model, show warning
+        AnsiConsole.MarkupLine("[yellow]No active model configured.[/]");
+        AnsiConsole.MarkupLine("[grey]Please go to 'Speech Recognition Models' in the main menu to select or download a model.[/]");
+        await Task.Delay(3000);
+        return false;
     }
 
     public void LoadModel(FileInfo selectedModelFile)
@@ -268,6 +219,17 @@ public class Workspace(
 
         // CancellationTokenSource to signal stop from Workspace to TranscriptionService
         using var cts = new CancellationTokenSource();
+        
+        // Allow Ctrl+C to be captured as input
+        Console.TreatControlCAsInput = true;
+        
+        // Register Ctrl+C handler
+        ConsoleCancelEventHandler cancelHandler = (sender, e) =>
+        {
+            e.Cancel = true; // Prevent immediate termination
+            cts.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
 
         // Define the device selection logic to be passed to the service
         Func<AudioInputDevice, Task<AudioInputDevice>> selectInputDeviceFunc = async (defaultDevice) =>
@@ -307,75 +269,209 @@ public class Workspace(
             }
         };
 
-        // Define the action for handling transcribed segments
+        AnsiConsole.MarkupLine("[cyan]Preparing for live transcription in Workspace...[/]");
+
+        // Create TUI instance
+        var tui = new LiveTranscriptionTUI(ModelName!, Config);
+        int wordCount = 0;
+        
+        // Initialize stream windows based on configuration
+        int maxConcurrentStreams = (int)Math.Ceiling(Config.LiveWindowDurationSeconds / Config.LiveAdvanceIntervalSeconds);
+        tui.AddLog($"[cyan]Config:[/] Window={Config.LiveWindowDurationSeconds}s, Advance={Config.LiveAdvanceIntervalSeconds}s");
+        tui.AddLog($"[cyan]Calculated:[/] {maxConcurrentStreams} concurrent streams");
+        for (int i = 1; i <= maxConcurrentStreams; i++)
+        {
+            tui.GetOrCreateStream(i);
+        }
+        tui.AddLog($"[green]Sliding window:[/] {maxConcurrentStreams} streams with {Config.LiveWindowDurationSeconds - Config.LiveAdvanceIntervalSeconds}s overlap");
+
+        // Define the action for handling per-window raw transcriptions
+        Action<int, string> handleWindowAction = (streamId, rawText) =>
+        {
+            // Update the specific stream window with raw transcription
+            tui.AddStreamText(streamId, rawText);
+            tui.SetStreamProcessing(streamId, true);
+            
+            if (featureToggles.EnableDiagnosticLogging)
+            {
+                var preview = rawText.Length > 30 ? rawText.Substring(0, 30) + "..." : rawText;
+                tui.AddLog($"[yellow]Stream {streamId}:[/] {Markup.Escape(preview)}");
+            }
+        };
+
+        // Define the action for handling transcribed segments - feed to TUI
         Action<string> handleSegmentAction = (segmentText) =>
         {
-            if (featureToggles.EnableDiagnosticLogging)
-                AnsiConsole.MarkupLine(
-                    $"[yellow]DEBUG: Workspace received segment: '{Markup.Escape(segmentText)}'[/]");
-            AnsiConsole.Write(Markup.Escape(segmentText)); // Continuous output
+            // Update TUI consolidated display
+            tui.AddConsolidatedText(segmentText);
+            
+            // Track word count
+            var segmentWordCount = segmentText.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Length;
+            wordCount += segmentWordCount;
+            tui.UpdateWordCount(wordCount);
+            
+            // Log segment arrival
+            tui.AddLog($"[green]Segment:[/] {segmentWordCount} words added");
 
             // Notify subscribers (e.g. UI or other components) about the new transcription data
             TranscribedDataAvailable?.Invoke(this, new TranscribedDataEventArgs(segmentText));
         };
 
-        AnsiConsole.MarkupLine("[cyan]Preparing for live transcription in Workspace...[/]");
-
-        // Start a task to listen for the Escape key to cancel transcription
-        var consoleInputTask = Task.Run(() =>
+        // Start key listener task BEFORE Live display to avoid input blocking
+        var keyListenerTask = Task.Run(() =>
         {
-            while (!cts.Token.IsCancellationRequested)
+            try
             {
-                if (Console.KeyAvailable)
+                while (!cts.Token.IsCancellationRequested)
                 {
-                    if (Console.ReadKey(true).Key == ConsoleKey.Escape)
+                    // Use a tight loop checking for input
+                    if (Console.KeyAvailable)
                     {
-                        AnsiConsole.MarkupLine("[yellow]ESC key pressed. Requesting stop...[/]");
-                        cts.Cancel();
-                        break;
+                        var keyInfo = Console.ReadKey(true);
+                        if (keyInfo.Key == ConsoleKey.Escape || 
+                            (keyInfo.Key == ConsoleKey.C && keyInfo.Modifiers.HasFlag(ConsoleModifiers.Control)))
+                        {
+                            tui.AddLog("[yellow]Exit key pressed - stopping...[/]");
+                            cts.Cancel();
+                            break;
+                        }
                     }
+                    Thread.Sleep(50); // Check every 50ms
                 }
-                Thread.Sleep(100); // Check periodically
+            }
+            catch (InvalidOperationException)
+            {
+                // Console input may be redirected or unavailable
             }
         });
 
+        // Start transcription wrapped in TUI Live display
         try
         {
-            await _transcriptionService.StartLiveTranscriptionAsync(
-                ModelPath!,
-                featureToggles,
-                audioCaptureService,
-                selectInputDeviceFunc,
-                handleSegmentAction,
-                Config.LiveTranscriptionsDirectory,
-                ModelName!,
-                cts.Token
-            );
-        }
-        catch (OperationCanceledException)
-        {
-            AnsiConsole.MarkupLine("[yellow]Live transcription operation was canceled in Workspace.[/]");
+            await AnsiConsole.Live(tui.Render())
+                .AutoClear(false)
+                .StartAsync(async ctx =>
+                {
+
+                    // Start transcription service task
+                    var transcriptionTask = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _transcriptionService.StartLiveTranscriptionAsync(
+                                ModelPath!,
+                                featureToggles,
+                                audioCaptureService,
+                                selectInputDeviceFunc,
+                                handleSegmentAction,
+                                handleWindowAction, // Per-window callback
+                                Config.LiveTranscriptionsDirectory,
+                                ModelName!,
+                                cts.Token
+                            );
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Expected when user presses ESC
+                        }
+                        catch (Exception)
+                        {
+                            // Will be caught in outer try/catch
+                            throw;
+                        }
+                    }, cts.Token);
+
+                    // Render loop - update TUI continuously with stream activity indicators
+                    // Simulate overlapping sliding window behavior
+                    var startTime = DateTime.Now;
+                    var windowDuration = Config.LiveWindowDurationSeconds;
+                    var advanceInterval = Config.LiveAdvanceIntervalSeconds;
+                    var cycleTime = maxConcurrentStreams * advanceInterval; // Time for all streams to start once
+                    
+                    while (!cts.Token.IsCancellationRequested && !transcriptionTask.IsCompleted)
+                    {
+                        try
+                        {
+                            // Calculate which streams should be active based on elapsed time
+                            var elapsed = (DateTime.Now - startTime).TotalSeconds;
+                            
+                            for (int i = 1; i <= maxConcurrentStreams; i++)
+                            {
+                                // Each stream has an offset when it first starts
+                                var streamStartOffset = (i - 1) * advanceInterval;
+                                
+                                // Time since this stream's last start (considering repeating cycles)
+                                var timeSinceStreamStart = (elapsed - streamStartOffset) % cycleTime;
+                                
+                                // Handle negative modulo for times before stream first starts
+                                if (timeSinceStreamStart < 0)
+                                    timeSinceStreamStart += cycleTime;
+                                
+                                // Stream is active if we're within windowDuration from its last start
+                                // AND the stream has actually started (elapsed >= streamStartOffset)
+                                bool hasStarted = elapsed >= streamStartOffset;
+                                bool isActive = hasStarted && (timeSinceStreamStart < windowDuration);
+                                
+                                tui.SetStreamProcessing(i, isActive);
+                            }
+                            
+                            ctx.UpdateTarget(tui.Render());
+                            await Task.Delay(100, cts.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                    }
+
+                    // Final render
+                    ctx.UpdateTarget(tui.Render());
+
+                    // Ensure transcription task completes
+                    try
+                    {
+                        await transcriptionTask;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected
+                    }
+                });
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error during live transcription setup or execution in Workspace: {Markup.Escape(ex.Message)}[/]");
+            AnsiConsole.MarkupLine($"[red]Error during live transcription: {Markup.Escape(ex.Message)}[/]");
         }
         finally
         {
+            // Trigger cancellation if not already done
             if (!cts.IsCancellationRequested)
             {
-                cts.Cancel(); // Ensure cancellation if not already requested (e.g. service finished early)
+                cts.Cancel();
             }
-            await consoleInputTask; // Ensure the console input task completes
 
-            AnsiConsole.MarkupLine("[cyan]Workspace: Cleaning up audio capture service...[/]");
+            // Wait for key listener to finish
+            try
+            {
+                await keyListenerTask.WaitAsync(TimeSpan.FromSeconds(1));
+            }
+            catch
+            {
+                // Ignore timeout or task exceptions during cleanup
+            }
+
+            // Restore console state
+            Console.TreatControlCAsInput = false;
+            Console.CancelKeyPress -= cancelHandler;
+
+            AnsiConsole.MarkupLine("\n[cyan]Workspace: Cleaning up audio capture service...[/]");
             if (audioCaptureService != null)
             {
                 await audioCaptureService.StopCaptureAsync();
                 await audioCaptureService.DisposeAsync();
             }
             AnsiConsole.MarkupLine("[green]Workspace: Audio capture service stopped and disposed.[/]");
-            AnsiConsole.WriteLine(); // Ensure a final newline for clean console output
+            AnsiConsole.WriteLine();
         }
     }
 

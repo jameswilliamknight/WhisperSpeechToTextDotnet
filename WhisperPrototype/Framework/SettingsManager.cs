@@ -51,7 +51,14 @@ public class SettingsManager
                 _appSettings.ModelsDirectory = savedSettings.ModelsDirectory;
                 _appSettings.LiveTranscriptionsDirectory = savedSettings.LiveTranscriptionsDirectory;
                 _appSettings.TempDirectory = savedSettings.TempDirectory;
+                _appSettings.ActiveModelPath = savedSettings.ActiveModelPath;
                 _appSettings.Verbosity = savedSettings.Verbosity;
+                
+                // TUI Mode settings
+                _appSettings.LiveUseTUIMode = savedSettings.LiveUseTUIMode;
+                _appSettings.LiveTUIMaxVisibleStreams = savedSettings.LiveTUIMaxVisibleStreams;
+                _appSettings.LiveTUIStreamHeight = savedSettings.LiveTUIStreamHeight;
+                _appSettings.LiveTUIConsolidatedHeight = savedSettings.LiveTUIConsolidatedHeight;
                 
                 // Restore VAD settings
                 _appSettings.SilenceDetectionNoiseDb = savedSettings.SilenceDetectionNoiseDb;

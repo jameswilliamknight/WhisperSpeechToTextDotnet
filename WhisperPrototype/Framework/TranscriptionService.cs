@@ -377,6 +377,7 @@ public class TranscriptionService(
         IAudioCaptureService audioCaptureService,
         Func<AudioInputDevice, Task<AudioInputDevice>> selectInputDeviceAsync, // For device selection UI
         Action<string> onSegmentTranscribed, // Callback for real-time segment display
+        Action<int, string>? onWindowTranscribed, // Callback for per-window raw transcription (streamId, text)
         string? outputDirectory,
         string modelName,
         CancellationToken cancellationToken)
@@ -500,6 +501,7 @@ public class TranscriptionService(
         
         var previousTranscription = string.Empty;
         int bytesProcessedSinceLastWindow = 0;
+        int windowCount = 0; // Track which window/stream we're processing
 
         Func<object?, AudioDataAvailableEventArgs, Task> audioDataHandler = async (_, args) =>
         {
@@ -543,10 +545,15 @@ public class TranscriptionService(
                 if (shouldProcessNormal || shouldProcessVAD)
                 {
                     bytesProcessedSinceLastWindow = 0;
+                    windowCount++;
+                    
+                    // Calculate stream ID (circular, wrapping based on advance interval)
+                    int maxConcurrentStreams = (int)Math.Ceiling(appSettings.LiveWindowDurationSeconds / appSettings.LiveAdvanceIntervalSeconds);
+                    int streamId = ((windowCount - 1) % maxConcurrentStreams) + 1;
                     
                     if (shouldProcessVAD)
                     {
-                        AnsiConsole.MarkupLine($"[dim cyan]VAD: Silence detected, processing final speech segment...[/]");
+                        AnsiConsole.MarkupLine($"[yellow][[VAD-STOP]][/] {appSettings.LiveVADSilenceDurationSeconds}s");
                     }
                     else if (featureToggles.LogProcessingChunkMessages)
                     {
@@ -598,6 +605,13 @@ public class TranscriptionService(
                         if (segmentReceived && windowTranscription.Length > 0)
                         {
                             var currentText = windowTranscription.ToString().Trim();
+                            
+                            // Notify per-window transcription (raw, before stitching)
+                            if (onWindowTranscribed != null && !string.IsNullOrWhiteSpace(currentText))
+                            {
+                                onWindowTranscribed(streamId, currentText);
+                            }
+                            
                             var stitchedText = transcriptionStitcher.StitchSegments(previousTranscription, currentText);
                             
                             if (!string.IsNullOrWhiteSpace(stitchedText))

@@ -91,6 +91,14 @@ var workspace = host.Services.GetRequiredService<IWorkspace>();
 var menuEngine = host.Services.GetRequiredService<MenuEngine>();
 var featureToggles = host.Services.GetRequiredService<FeatureToggles>();
 
+// Register ModelManager in DI
+var modelManager = new WhisperPrototype.Framework.Models.ModelManager(
+    appSettingsInstance.ModelsDirectory ?? Path.Combine(
+        Path.GetDirectoryName(appSettingsInstance.InputDirectory ?? Directory.GetCurrentDirectory()) ?? Directory.GetCurrentDirectory(),
+        "Models"),
+    appSettingsInstance,
+    settingsManager);
+
 // Main application loop
 while (true)
 {
@@ -98,13 +106,15 @@ while (true)
     var isLiveConfigured = settingsManager.IsLiveTranscriptionConfigured();
     var menuOptions = new List<string>();
     
+    // Speech Recognition Models is always first and always visible
+    menuOptions.Add("Speech Recognition Models");
+    
     if (isConfigured)
     {
-        menuOptions.Add("Select Model");
         menuOptions.Add("Process Audio Recordings");
         if (isLiveConfigured)
         {
-            menuOptions.Add("Live Transcription");
+            menuOptions.Add("Live Transcription [yellow](Beta)[/]");
         }
         menuOptions.Add("Configure Settings");
     }
@@ -117,12 +127,12 @@ while (true)
     var choice = await menuEngine.DisplayMainMenuAndGetChoiceAsync(menuOptions);
     switch (choice)
     {
+        case "Speech Recognition Models":
+            await modelManager.ShowModelMenuAsync();
+            break;
         case "Configure Settings":
         case "Configure Settings (Required)":
             await settingsManager.ShowConfigurationMenuAsync();
-            break;
-        case "Select Model":
-            await workspace.SelectModelAsync();
             break;
         case "Process Audio Recordings":
             var audioFiles = workspace.GetAudioRecordings();
@@ -133,7 +143,7 @@ while (true)
                 fi => fi.Name
             );
             break;
-        case "Live Transcription":
+        case "Live Transcription [yellow](Beta)[/]":
             await workspace.StartLiveTranscriptionAsync();
             break;
         case "Exit":
