@@ -1,10 +1,23 @@
 namespace WhisperPrototype
 {
+    public enum VerbosityLevel
+    {
+        Quiet = 0,    // Minimal output: just progress and transcribed text
+        Normal = 1,   // Default: clean, concise output
+        Verbose = 2,  // Detailed: show steps and timing
+        Debug = 3     // Everything: including FFmpeg commands and technical details
+    }
+
     public class AppSettings
     {
         public string? InputDirectory { get; set; }
         public string? OutputDirectory { get; set; }
+        public string? ModelsDirectory { get; set; }
+        public string? LiveTranscriptionsDirectory { get; set; }
         public string? TempDirectory { get; set; }
+
+        // Output verbosity
+        public VerbosityLevel Verbosity { get; set; } = VerbosityLevel.Normal; // Default to clean output
 
         // VAD Parameters for splitting by silence
         public string SilenceDetectionNoiseDb { get; set; } = "-30dB"; // Default to -30dB

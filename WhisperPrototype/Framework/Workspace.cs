@@ -21,7 +21,7 @@ public class Workspace(
     private string? ModelPath { get; set; }
     private string? ModelName { get; set; }
 
-    private bool IsInitialised => !string.IsNullOrEmpty(ModelPath) && !string.IsNullOrEmpty(ModelName);
+    public bool IsModelLoaded => !string.IsNullOrEmpty(ModelPath) && !string.IsNullOrEmpty(ModelName);
 
     private AppSettings Config { get; init; } = appConfig;
 
@@ -73,26 +73,40 @@ public class Workspace(
 
     public async Task<bool> SelectModelAsync()
     {
-        if (string.IsNullOrEmpty(Config.InputDirectory))
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] InputDirectory is not configured in appsettings.json. Cannot determine the Models directory path.");
-            throw new InvalidOperationException("InputDirectory is not configured in appsettings.json. Cannot determine the Models directory path.");
-        }
+        string modelDirectory;
 
-        var baseDirectoryFromConfig = Path.GetDirectoryName(Config.InputDirectory);
-        if (string.IsNullOrEmpty(baseDirectoryFromConfig))
+        if (!string.IsNullOrEmpty(Config.ModelsDirectory))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Could not determine a valid parent directory from the configured InputDirectory: [yellow]{Config.InputDirectory}[/]. Cannot locate Models directory.");
-            throw new InvalidOperationException($"Could not determine a valid parent directory from the configured InputDirectory ('{Config.InputDirectory}'). Cannot locate Models directory.");
+            modelDirectory = Config.ModelsDirectory;
         }
+        else
+        {
+            // Fallback: Derive from InputDirectory
+            if (string.IsNullOrEmpty(Config.InputDirectory))
+            {
+                AnsiConsole.MarkupLine("[red]Error:[/] InputDirectory is not configured. Cannot determine the Models directory path.");
+                AnsiConsole.MarkupLine("[yellow]Please configure your directories first.[/]");
+                await Task.Delay(2000);
+                return false;
+            }
 
-        var modelDirectory = Path.Combine(baseDirectoryFromConfig, "Models");
+            var baseDirectoryFromConfig = Path.GetDirectoryName(Config.InputDirectory);
+            if (string.IsNullOrEmpty(baseDirectoryFromConfig))
+            {
+                AnsiConsole.MarkupLine($"[red]Error:[/] Could not determine a valid parent directory from the configured InputDirectory: [yellow]{Config.InputDirectory}[/]. Cannot locate Models directory.");
+                AnsiConsole.MarkupLine("[yellow]Please configure your directories first.[/]");
+                await Task.Delay(2000);
+                return false;
+            }
+            modelDirectory = Path.Combine(baseDirectoryFromConfig, Constants.ModelsDirectoryName);
+        }
 
         if (!Directory.Exists(modelDirectory))
         {
             AnsiConsole.MarkupLine("[red]Error:[/] Model directory not found: [yellow]" + modelDirectory + "[/]");
-            AnsiConsole.MarkupLine("[grey](Derived from InputDirectory in appsettings.json)[/]"); // Inform user about the source
-            throw new DirectoryNotFoundException($"Model directory not found: {modelDirectory} (derived from InputDirectory in appsettings.json)");
+            AnsiConsole.MarkupLine("[yellow]Please ensure the models directory exists and contains model files.[/]");
+            await Task.Delay(2000);
+            return false;
         }
 
         var modelFiles = Directory.GetFiles(modelDirectory)
@@ -104,7 +118,9 @@ public class Workspace(
         if (modelFiles.Count == 0)
         {
             AnsiConsole.MarkupLine("[red]Error:[/] No model files found in: [yellow]" + modelDirectory + "[/]");
-            throw new FileNotFoundException($"No model files found in {modelDirectory}");
+            AnsiConsole.MarkupLine("[yellow]Please download or add model files to this directory.[/]");
+            await Task.Delay(2000);
+            return false;
         }
 
         var selectedModelFile = await menuEngine.PromptChooseSingleFile(
@@ -115,7 +131,7 @@ public class Workspace(
 
         if (selectedModelFile == null)
         {
-            AnsiConsole.MarkupLine("[red]Error:[/] No model file was selected. Application cannot continue.[/]");
+            AnsiConsole.MarkupLine("[yellow]Model selection cancelled.[/]");
             return false;
         }
 
@@ -146,11 +162,9 @@ public class Workspace(
             Directory.CreateDirectory(Config.InputDirectory!);
 
             // Exit because the input directory didn't previously exist; now add files and re-run.
-            AnsiConsole.WriteLine("Please place your MP3 files in this directory and run the application again.");
+            AnsiConsole.WriteLine("Please place your audio files in this directory and run the application again.");
             return;
         }
-
-        AnsiConsole.WriteLine($"Looking for MP3 files in: {Config.InputDirectory}");
 
         // Changes IsInitialised { false => true } so do it last, once finalised.
         ModelPath = tempModelPath;
@@ -166,9 +180,13 @@ public class Workspace(
     /// </remarks>
     public async Task TranscribeAll(IEnumerable<FileInfo> audioFiles)
     {
-        if (!IsInitialised)
+        if (!IsModelLoaded)
         {
-            throw new Exception("Please initialize the workspace before processing.");
+            AnsiConsole.MarkupLine("[yellow]Model not loaded. Please select a model first.[/]");
+            if (!await SelectModelAsync())
+            {
+                return; // User cancelled model selection
+            }
         }
 
         if (string.IsNullOrEmpty(Config.TempDirectory))
@@ -219,21 +237,25 @@ public class Workspace(
         if (!audioFileInfos.Any())
         {
             AnsiConsole.MarkupLine(
-                $"[yellow]No audio recordings (*.mp3) found in {Markup.Escape(Config.InputDirectory)}.[/]");
+                $"[yellow]No audio recordings (*.mp3, *.m4a) found in {Markup.Escape(Config.InputDirectory)}.[/]");
             AnsiConsole.MarkupLine(
                 "Please place your audio recording files in this directory and run the application again.");
             return [];
         }
 
-        AnsiConsole.MarkupLine($"Found [green]{audioFileInfos.Count}[/] audio recording(s) (*.mp3) to process.");
+        AnsiConsole.MarkupLine($"Found [green]{audioFileInfos.Count}[/] audio recording(s) to process.");
         return audioFileInfos.ToArray();
     }
 
     public async Task StartLiveTranscriptionAsync()
     {
-        if (!IsInitialised)
+        if (!IsModelLoaded)
         {
-            throw new Exception($"Please initialize the workspace with {nameof(LoadModel)}() before processing.");
+            AnsiConsole.MarkupLine("[yellow]Model not loaded. Please select a model first.[/]");
+            if (!await SelectModelAsync())
+            {
+                return; // User cancelled model selection
+            }
         }
 
         var audioCaptureService = AudioCaptureService; // Get the lazily-initialized service
@@ -266,11 +288,21 @@ public class Workspace(
             }
             else
             {
+                const string GoBackOption = "Go Back";
                 var selectionPrompt = new SelectionPrompt<string>()
                     .Title("Multiple audio input devices detected. Please select one:")
                     .PageSize(10)
                     .AddChoices(availableDevices.Select(d => d.Name));
+
+                selectionPrompt.AddChoice(GoBackOption);
+                
                 var selectedDisplayName = await AnsiConsole.PromptAsync(selectionPrompt);
+                
+                if (selectedDisplayName == GoBackOption)
+                {
+                    throw new OperationCanceledException("User cancelled device selection.");
+                }
+
                 return availableDevices.First(d => d.Name == selectedDisplayName);
             }
         };
@@ -282,6 +314,9 @@ public class Workspace(
                 AnsiConsole.MarkupLine(
                     $"[yellow]DEBUG: Workspace received segment: '{Markup.Escape(segmentText)}'[/]");
             AnsiConsole.Write(Markup.Escape(segmentText)); // Continuous output
+
+            // Notify subscribers (e.g. UI or other components) about the new transcription data
+            TranscribedDataAvailable?.Invoke(this, new TranscribedDataEventArgs(segmentText));
         };
 
         AnsiConsole.MarkupLine("[cyan]Preparing for live transcription in Workspace...[/]");
@@ -312,7 +347,7 @@ public class Workspace(
                 audioCaptureService,
                 selectInputDeviceFunc,
                 handleSegmentAction,
-                Config.OutputDirectory,
+                Config.LiveTranscriptionsDirectory,
                 ModelName!,
                 cts.Token
             );

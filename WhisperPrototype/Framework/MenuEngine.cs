@@ -59,7 +59,7 @@ public class MenuEngine
             .MoreChoicesText("[grey](Move up and down to reveal more items)[/]")
             .InstructionsText(
                 "[grey](Press [blue]<space>[/] to toggle an item, " +
-                "[green]<enter>[/] to accept)[/]")
+                "[green]<enter>[/] to accept or go back if none selected)[/]")
             .UseConverter(displayConverter)
             .AddChoices(items.ToList()); // Ensure it's a list for AddChoices
 
@@ -80,18 +80,42 @@ public class MenuEngine
             return null;
         }
 
-        var selectionPrompt = new SelectionPrompt<T>()
+        // Map display strings to items, preserving order
+        var options = new Dictionary<string, T>();
+        var choices = new List<string>();
+
+        foreach (var item in itemList)
+        {
+            var display = displayConverter(item);
+            // Ensure unique keys for the prompt
+            if (!options.ContainsKey(display))
+            {
+                options[display] = item;
+                choices.Add(display);
+            }
+        }
+
+        const string GoBackOption = "[red]Go Back[/]";
+        choices.Add(GoBackOption);
+
+        var selectionPrompt = new SelectionPrompt<string>()
             .Title(title)
             .PageSize(10)
             .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
             .HighlightStyle("green")
-            .AddChoices(itemList)
-            .UseConverter(displayConverter);
+            .AddChoices(choices);
 
-        return await AnsiConsole.PromptAsync(selectionPrompt);
+        var choice = await AnsiConsole.PromptAsync(selectionPrompt);
+
+        if (choice == GoBackOption)
+        {
+            return null;
+        }
+
+        return options[choice];
     }
 
-    public async Task<string> DisplayMainMenuAndGetChoiceAsync()
+    public async Task<string> DisplayMainMenuAndGetChoiceAsync(IEnumerable<string> choices)
     {
         AnsiConsole.WriteLine(); // Add some spacing for clarity before the prompt
         var choice = await AnsiConsole.PromptAsync(
@@ -99,13 +123,7 @@ public class MenuEngine
                 .Title("What would you like to do?")
                 .PageSize(10) // Consistent page size
                 .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
-                // Ensure these choices match the switch cases in Program.cs
-                .AddChoices(new[] { 
-                    "Select Model", 
-                    "Process Audio Recordings", 
-                    "Live Transcription", 
-                    "Exit" 
-                }));
+                .AddChoices(choices));
         return choice;
     }
 }

@@ -28,12 +28,18 @@ public class TranscriptionService(
         var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(audioFilePath);
         var originalFileNameForLogging = Markup.Escape(audioFileInfo.Name);
 
-        AnsiConsole.MarkupLine($"\n[bold blue]TRANSCRIPTION SERVICE: Starting process for {originalFileNameForLogging}[/]");
+        if (appSettings.Verbosity >= VerbosityLevel.Normal)
+        {
+            AnsiConsole.MarkupLine($"\n[bold blue]Processing: {originalFileNameForLogging}[/]");
+        }
 
         if (!Directory.Exists(outputDirectory))
         {
             Directory.CreateDirectory(outputDirectory);
-            AnsiConsole.MarkupLine($"[grey]   Created output directory: {Markup.Escape(outputDirectory)}[/]");
+            if (appSettings.Verbosity >= VerbosityLevel.Debug)
+            {
+                AnsiConsole.MarkupLine($"[grey]   Created output directory: {Markup.Escape(outputDirectory)}[/]");
+            }
         }
 
         if (!string.IsNullOrEmpty(tempDirectoryPath) && !Directory.Exists(tempDirectoryPath))
@@ -41,19 +47,37 @@ public class TranscriptionService(
             try
             {
                 Directory.CreateDirectory(tempDirectoryPath);
-                AnsiConsole.MarkupLine($"[grey]   Created temporary directory: {Markup.Escape(tempDirectoryPath)}[/]");
+                if (appSettings.Verbosity >= VerbosityLevel.Debug)
+                {
+                    AnsiConsole.MarkupLine($"[grey]   Created temp directory: {Markup.Escape(tempDirectoryPath)}[/]");
+                }
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]   Error creating temporary directory {Markup.Escape(tempDirectoryPath)}: {Markup.Escape(ex.Message)}[/]");
-                // Decide on fallback or re-throw. For now, let it proceed, Path.Combine might fail or subsequent ops.
+                AnsiConsole.MarkupLine($"[red]   Error creating temp directory: {Markup.Escape(ex.Message)}[/]");
             }
         }
 
         var outputTxtFilePath =
             Path.Combine(outputDirectory, $"{fileNameWithoutExtension}_{modelName}.txt");
-        var tempWavFilePath = Path.Combine(tempDirectoryPath, $"{fileNameWithoutExtension}_full_temp.wav"); // Made temp WAV name more specific
 
+        // Create a workspace directory specific to this file
+        var workspaceDirectory = Path.Combine(tempDirectoryPath, $"{fileNameWithoutExtension}_workspace");
+        try
+        {
+            if (!Directory.Exists(workspaceDirectory))
+            {
+                Directory.CreateDirectory(workspaceDirectory);
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]   Error creating workspace directory {Markup.Escape(workspaceDirectory)}: {Markup.Escape(ex.Message)}[/]");
+            throw; // Cannot proceed without workspace
+        }
+
+        var tempWavFilePath = Path.Combine(workspaceDirectory, $"{fileNameWithoutExtension}_full_temp.wav");
+        
         if (File.Exists(outputTxtFilePath))
         {
             AnsiConsole.MarkupLine($"[yellow]   Output file already exists: {Markup.Escape(outputTxtFilePath)}[/].");
@@ -73,21 +97,34 @@ public class TranscriptionService(
         // Path for storing the detected audio segments as JSON
         var segmentsJsonFilePath = Path.ChangeExtension(tempWavFilePath, ".segments.json");
 
+        var transcriptionSuccessful = false;
         try
         {
-            AnsiConsole.MarkupLine($"[cyan]   Step 1: Converting to WAV for {originalFileNameForLogging}...[/]");
-            AnsiConsole.MarkupLine($"[grey]     Source: {Markup.Escape(audioFilePath)}[/]");
-            AnsiConsole.MarkupLine($"[grey]     Target Temp WAV: {Markup.Escape(tempWavFilePath)}[/]");
+            if (appSettings.Verbosity >= VerbosityLevel.Normal)
+            {
+                AnsiConsole.MarkupLine($"[cyan]   Step 1: Converting to WAV...[/]");
+            }
+            
+            if (appSettings.Verbosity >= VerbosityLevel.Debug)
+            {
+                AnsiConsole.MarkupLine($"[grey]     Source: {Markup.Escape(audioFilePath)}[/]");
+                AnsiConsole.MarkupLine($"[grey]     Target: {Markup.Escape(tempWavFilePath)}[/]");
+            }
+            
             audioConverter.ToWav(audioFilePath, tempWavFilePath);
-            AnsiConsole.MarkupLine("[green]     Conversion to WAV complete.[/]");
+            
+            if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+            {
+                AnsiConsole.MarkupLine("[green]     Conversion complete[/]");
+            }
 
             if (!File.Exists(tempWavFilePath))
             {
                 throw new FileNotFoundException($"Audio conversion failed to create the temporary WAV file: {tempWavFilePath}");
             }
 
-            AnsiConsole.MarkupLine($"[cyan]   Step 2: Detecting speech segments for {originalFileNameForLogging}...[/]");
-            var vadParameters = new VADParameters // Populate from AppSettings
+            // Step 2 title is now shown by audio chunker
+            var vadParameters = new VADParameters
             {
                 SilenceDetectionNoiseDb = appSettings.SilenceDetectionNoiseDb,
                 MinSilenceDurationSeconds = appSettings.MinSilenceDurationSeconds,
@@ -102,22 +139,33 @@ public class TranscriptionService(
                 var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
                 var segmentsJson = JsonSerializer.Serialize(speechSegments, jsonOptions);
                 await File.WriteAllTextAsync(segmentsJsonFilePath, segmentsJson);
-                AnsiConsole.MarkupLine($"[green]   Detected segments saved to: {Markup.Escape(segmentsJsonFilePath)}[/]");
+                if (appSettings.Verbosity >= VerbosityLevel.Debug)
+                {
+                    AnsiConsole.MarkupLine($"[green]   Segments saved to: {Markup.Escape(segmentsJsonFilePath)}[/]");
+                }
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[yellow]   Warning: Could not save detected segments to JSON ({Markup.Escape(segmentsJsonFilePath)}): {Markup.Escape(ex.Message)}[/]");
+                if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]   Warning: Could not save segments JSON: {Markup.Escape(ex.Message)}[/]");
+                }
             }
 
             if (!speechSegments.Any())
             {
-                AnsiConsole.MarkupLine($"[yellow]   No speech segments detected for {originalFileNameForLogging}. Transcription will be empty.[/]");
-                await File.WriteAllTextAsync(outputTxtFilePath, string.Empty); // Create an empty transcription file
-                AnsiConsole.MarkupLine($"[green]   Empty transcription saved to: {Markup.Escape(outputTxtFilePath)}[/]");
+                if (appSettings.Verbosity >= VerbosityLevel.Normal)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]   No speech detected. Creating empty transcription.[/]");
+                }
+                await File.WriteAllTextAsync(outputTxtFilePath, string.Empty);
                 return;
             }
 
-            AnsiConsole.MarkupLine($"[cyan]   Step 3: Transcribing {speechSegments.Count} speech segment(s) for {originalFileNameForLogging}...[/]");
+            if (appSettings.Verbosity >= VerbosityLevel.Normal)
+            {
+                AnsiConsole.MarkupLine($"[cyan]   Step 3: Transcribing {speechSegments.Count} segment(s)...[/]");
+            }
             var overallTranscription = new StringBuilder();
             var overallStopwatch = Stopwatch.StartNew();
             double totalAudioProcessedDurationSeconds = 0;
@@ -126,35 +174,48 @@ public class TranscriptionService(
             {
                 var segment = speechSegments[i];
                 // Determine the output path for this specific segment's transcript
-                var outputDirectoryName = Path.GetDirectoryName(outputTxtFilePath);
+                // var outputDirectoryName = Path.GetDirectoryName(outputTxtFilePath); 
                 var baseOutputFileName = Path.GetFileNameWithoutExtension(outputTxtFilePath); // e.g., "myaudio_ggml-medium.en.bin"
                 var segmentTxtFileName = $"{baseOutputFileName}_segment-{i + 1:D4}.txt";
-                var segmentTxtFilePath = Path.Combine(outputDirectoryName ?? string.Empty, segmentTxtFileName);
+                // Store individual segment transcripts in the workspace directory for easier cleanup
+                var segmentTxtFilePath = Path.Combine(workspaceDirectory, segmentTxtFileName);
                 
                 var firstResultInSegment = true; // To manage Write vs Append for the segment file
 
-                AnsiConsole.MarkupLine($"[blue]     Transcribing segment {i + 1}/{speechSegments.Count}: {segment.StartTime:g} to {segment.EndTime:g} (Duration: {segment.Duration:g})[/]");
+                if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+                {
+                    AnsiConsole.MarkupLine($"[grey]     Segment {i + 1}/{speechSegments.Count}: {segment.StartTime:g} to {segment.EndTime:g}[/]");
+                }
+                
                 var segmentStopwatch = Stopwatch.StartNew();
                 try
                 {
                     // Get stream for the current segment
-                    await using var segmentStream = await segmentProcessor.GetSegmentStreamAsync(tempWavFilePath, segment, i, speechSegments.Count);
+                    await using var segmentStream = await segmentProcessor.GetSegmentStreamAsync(tempWavFilePath, segment, i, speechSegments.Count, workspaceDirectory);
 
                     if (segmentStream == Stream.Null || segmentStream.Length == 0) 
-                    { 
-                        AnsiConsole.MarkupLine($"[yellow]     Segment {i+1} stream is null or empty, skipping transcription for this segment.[/]");
+                    {
+                        if (appSettings.Verbosity >= VerbosityLevel.Normal)
+                        {
+                            AnsiConsole.MarkupLine($"[yellow]     Warning: Segment {i+1} is empty, skipping.[/]");
+                        }
                         continue; 
                     }
 
                     await foreach (var result in processor.ProcessAsync(segmentStream))
                     {
-                        overallTranscription.Append(result.Text);
-                        // No longer using currentSegmentTranscription
-
                         if (!string.IsNullOrWhiteSpace(result.Text))
                         {
                             var textToSaveAndPrint = result.Text.Trim();
-                            AnsiConsole.MarkupLine($"[#8B8000]       Segment text: {Markup.Escape(textToSaveAndPrint)}[/]");
+                            
+                            // Append to overall transcription (trimmed)
+                            overallTranscription.AppendLine(textToSaveAndPrint);
+                            
+                            // Always show transcribed text in Quiet and above
+                            if (appSettings.Verbosity >= VerbosityLevel.Quiet)
+                            {
+                                AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(textToSaveAndPrint)}[/]");
+                            }
 
                             // Write/Append this part to the segment's transcript file
                             if (firstResultInSegment)
@@ -174,58 +235,91 @@ public class TranscriptionService(
 
                     totalAudioProcessedDurationSeconds += segment.Duration.TotalSeconds;
                     segmentStopwatch.Stop();
-                    AnsiConsole.MarkupLine($"[green]     Segment {i + 1} transcribed in {segmentStopwatch.ElapsedMilliseconds}ms. Appended to main transcript.[/]");
+                    
+                    if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+                    {
+                        AnsiConsole.MarkupLine($"[green]     Segment {i + 1} completed in {segmentStopwatch.ElapsedMilliseconds}ms[/]");
+                    }
                 }
                 catch (Exception ex)
                 {
                     segmentStopwatch.Stop();
-                    AnsiConsole.MarkupLine($"[red]     Error transcribing segment {i + 1} ({segment.StartTime:g}-{segment.EndTime:g}): {Markup.Escape(ex.Message)}[/]");
-                    AnsiConsole.MarkupLine($"[yellow]     Skipping this segment, continuing with others if any.[/]");
+                    AnsiConsole.MarkupLine($"[red]     Error in segment {i + 1}: {Markup.Escape(ex.Message)}[/]");
+                    if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+                    {
+                        AnsiConsole.MarkupLine($"[yellow]     Skipping segment and continuing...[/]");
+                    }
                 }
             }
 
             overallStopwatch.Stop();
-            AnsiConsole.MarkupLine($"[green]   All segments transcribed for {originalFileNameForLogging}.[/]");
             
-            var audioDuration = TimeSpan.FromSeconds(totalAudioProcessedDurationSeconds); // Sum of processed segment durations
+            var audioDuration = TimeSpan.FromSeconds(totalAudioProcessedDurationSeconds);
             var ratio = overallStopwatch.Elapsed.TotalSeconds / audioDuration.TotalSeconds;
             var audioDurationText = audioDuration.TotalSeconds.ToString("F2");
             var elapsedText = overallStopwatch.Elapsed.TotalSeconds.ToString("F2");
             var ratioText = ratio.ToString("F2");
             var speedColor = ratio < 1 ? "green" : "red";
-            var speedDetailsMarkup = $"[bold {speedColor}]{ratioText}x speed[/]";
 
-            AnsiConsole.MarkupLine(
-                $"[green]   Transcription of {speechSegments.Count} segments (total speech: {audioDurationText}s) completed in {elapsedText}s ({speedDetailsMarkup}).[/]"
-            );
+            if (appSettings.Verbosity >= VerbosityLevel.Normal)
+            {
+                AnsiConsole.MarkupLine($"[green]   Completed in {elapsedText}s ([{speedColor}]{ratioText}x speed[/])[/]");
+            }
 
             await File.WriteAllTextAsync(outputTxtFilePath, overallTranscription.ToString().Trim());
-            AnsiConsole.MarkupLine($"[green]   Full transcription saved to: {Markup.Escape(outputTxtFilePath)}[/]");
-            AnsiConsole.WriteLine(Markup.Escape(overallTranscription.ToString().Trim()));
-            AnsiConsole.MarkupLine($"--- END OF TRANSCRIPTION FOR {originalFileNameForLogging} ---");
+            
+            if (appSettings.Verbosity >= VerbosityLevel.Normal)
+            {
+                AnsiConsole.MarkupLine($"[green]   Saved to: {Markup.Escape(outputTxtFilePath)}[/]");
+            }
+            
+            // Show full transcription text only in Verbose mode
+            if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine("[cyan]Full transcription:[/]");
+                AnsiConsole.WriteLine(Markup.Escape(overallTranscription.ToString().Trim()));
+            }
+            transcriptionSuccessful = true;
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine(
-                $"[red]TRANSCRIPTION SERVICE: Error processing {originalFileNameForLogging}: {Markup.Escape(ex.Message)}[/]");
-             // Optionally print stack trace for debugging: AnsiConsole.WriteException(ex);
+            AnsiConsole.MarkupLine($"[red]   Error: {Markup.Escape(ex.Message)}[/]");
+            if (appSettings.Verbosity >= VerbosityLevel.Debug)
+            {
+                AnsiConsole.WriteException(ex);
+            }
         }
         finally
         {
-            // Delete the main temporary WAV file (segment temp files are deleted on close by FFmpegAudioSegmentProcessor)
-            if (File.Exists(tempWavFilePath))
+            if (transcriptionSuccessful)
             {
                 try
                 {
-                    File.Delete(tempWavFilePath);
-                    AnsiConsole.MarkupLine($"[grey]   Cleaned up main temporary WAV file: {Markup.Escape(tempWavFilePath)}[/]");
+                    if (Directory.Exists(workspaceDirectory))
+                    {
+                        Directory.Delete(workspaceDirectory, true);
+                        if (appSettings.Verbosity >= VerbosityLevel.Debug)
+                        {
+                            AnsiConsole.MarkupLine($"[grey]   Cleaned up temp files[/]");
+                        }
+                    }
                 }
-                catch (IOException ioEx)
+                catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[yellow]   Warning: Could not delete main temporary WAV file {Markup.Escape(tempWavFilePath)}: {Markup.Escape(ioEx.Message)}[/]");
+                    if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+                    {
+                        AnsiConsole.MarkupLine($"[yellow]   Warning: Could not delete temp files: {Markup.Escape(ex.Message)}[/]");
+                    }
                 }
             }
-            // The .segments.json file is intentionally kept for inspection.
+            else
+            {
+                if (appSettings.Verbosity >= VerbosityLevel.Normal)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]   Transcription incomplete. Temp files preserved in: {Markup.Escape(workspaceDirectory)}[/]");
+                }
+            }
         }
     }
 
@@ -237,12 +331,41 @@ public class TranscriptionService(
         IAudioConverter audioConverter,
         string tempDirectoryPath)
     {
-        AnsiConsole.MarkupLine($"\n[bold blue]TRANSCRIPTION SERVICE: Starting batch transcription for {audioFiles.Count()} file(s).[/]");
-        foreach (var audioFileInfo in audioFiles)
+        var filesList = audioFiles.ToList();
+        
+        if (appSettings.Verbosity >= VerbosityLevel.Normal)
         {
-            await TranscribeFileAsync(audioFileInfo, processor, modelName, outputDirectory, audioConverter, tempDirectoryPath);
+            AnsiConsole.MarkupLine($"\n[bold blue]Starting batch transcription ({filesList.Count} file(s))[/]");
         }
-        AnsiConsole.MarkupLine("[bold blue]TRANSCRIPTION SERVICE: All files processed.[/]");
+        
+        await AnsiConsole.Progress()
+            .AutoClear(false)
+            .Columns(
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new PercentageColumn(),
+                new SpinnerColumn())
+            .StartAsync(async ctx =>
+            {
+                var task = ctx.AddTask("[yellow]Processing files[/]", maxValue: filesList.Count);
+                
+                for (int i = 0; i < filesList.Count; i++)
+                {
+                    var audioFileInfo = filesList[i];
+                    task.Description = $"[yellow]({i + 1}/{filesList.Count}) {Markup.Escape(audioFileInfo.Name)}[/]";
+                    
+                    await TranscribeFileAsync(audioFileInfo, processor, modelName, outputDirectory, audioConverter, tempDirectoryPath);
+                    
+                    task.Increment(1);
+                }
+                
+                task.Description = "[green]All files processed[/]";
+            });
+        
+        if (appSettings.Verbosity >= VerbosityLevel.Normal)
+        {
+            AnsiConsole.MarkupLine("[bold green]Batch transcription complete![/]");
+        }
     }
 
     public async Task StartLiveTranscriptionAsync(
@@ -265,6 +388,26 @@ public class TranscriptionService(
             .Build();
 
         AnsiConsole.MarkupLine($"[green]Whisper.net ready with language: en[/]");
+
+        // Prepare output file path and display it prominently
+        string? transcriptPath = null;
+        if (outputDirectory != null && !string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            if (!Directory.Exists(outputDirectory))
+            {
+                Directory.CreateDirectory(outputDirectory);
+            }
+            transcriptPath = Path.Combine(
+                outputDirectory,
+                $"Live_{DateTime.Now:yyyyMMdd_HHmmss}_{modelName}.txt");
+            
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule("[yellow]Output Location[/]"));
+            AnsiConsole.MarkupLine($"[cyan]Transcription will be saved to:[/]");
+            AnsiConsole.MarkupLine($"  [yellow]{Markup.Escape(transcriptPath)}[/]");
+            AnsiConsole.Write(new Rule());
+            AnsiConsole.WriteLine();
+        }
 
         var desiredFormat = new WaveFormat(16000, 16, 1); // PCM, 16kHz, 16-bit, Mono
 
@@ -291,25 +434,32 @@ public class TranscriptionService(
             AnsiConsole.MarkupLine($"[green]Using device: {Markup.Escape(selectedInputDevice.Name)}[/]");
         }
 
-        var audioBuffer = new MemoryStream();
-        var transcriptionBuffer = new StringBuilder();
-
-        const float desiredChunkDurationSeconds = 5.0f;
+        // Overlapping window configuration
+        const float windowDurationSeconds = 10.0f;
+        const float advanceIntervalSeconds = 2.0f;
         const int bytesPerSample = 2; // 16-bit audio
         const int channels = 1; // Mono audio
         const int sampleRate = 16000; // 16kHz
         const int bytesPerSecond = sampleRate * bytesPerSample * channels;
-        const int processThresholdInBytes = (int)(bytesPerSecond * desiredChunkDurationSeconds);
+        const int windowSizeInBytes = (int)(bytesPerSecond * windowDurationSeconds);
+        const int advanceIntervalBytes = (int)(bytesPerSecond * advanceIntervalSeconds);
 
-        Func<object, AudioDataAvailableEventArgs, Task> audioDataHandler = async (_, args) =>
+        var circularBuffer = new CircularAudioBuffer(windowSizeInBytes);
+        var transcriptionBuffer = new StringBuilder();
+        var previousTranscription = string.Empty;
+        int bytesProcessedSinceLastWindow = 0;
+
+        Func<object?, AudioDataAvailableEventArgs, Task> audioDataHandler = async (_, args) =>
         {
             if (args.BytesRecorded <= 0) return;
-            await audioBuffer.WriteAsync(args.Buffer, 0, args.BytesRecorded, cancellationToken);
+            await Task.Run(() => circularBuffer.Write(args.Buffer, 0, args.BytesRecorded), cancellationToken);
+            bytesProcessedSinceLastWindow += args.BytesRecorded;
             if (featureToggles.LogAudioDataReceivedMessages)
             {
                 AnsiConsole.MarkupLine(
                     $"[grey]Live: Received {args.BytesRecorded} audio bytes. " +
-                    $"Buffer size: {audioBuffer.Length} bytes.[/]");
+                    $"Buffer: {circularBuffer.AvailableBytes}/{windowSizeInBytes} bytes, " +
+                    $"Since last window: {bytesProcessedSinceLastWindow}/{advanceIntervalBytes}[/]");
             }
         };
         audioCaptureService.AudioDataAvailable += (sender, args) => { audioDataHandler(sender, args); };
@@ -321,22 +471,24 @@ public class TranscriptionService(
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                if (audioBuffer.Length >= processThresholdInBytes)
+                // Check if we have enough audio data and have advanced enough since last window
+                if (circularBuffer.AvailableBytes >= windowSizeInBytes && 
+                    bytesProcessedSinceLastWindow >= advanceIntervalBytes)
                 {
+                    bytesProcessedSinceLastWindow = 0;
+                    
                     if (featureToggles.LogProcessingChunkMessages)
-                        AnsiConsole.MarkupLine($"[cyan]Processing audio chunk of {audioBuffer.Length} bytes...[/]");
-                    audioBuffer.Seek(0, SeekOrigin.Begin);
+                        AnsiConsole.MarkupLine($"[cyan]Processing 10s audio window ({windowSizeInBytes} bytes)...[/]");
 
-                    var tempBuffer = new byte[audioBuffer.Length];
-                    await audioBuffer.ReadExactlyAsync(tempBuffer, 0, tempBuffer.Length, cancellationToken);
-                    audioBuffer.SetLength(0);
-                    audioBuffer.Seek(0, SeekOrigin.Begin);
+                    // Get the complete window from circular buffer
+                    var windowBytes = circularBuffer.ReadAll();
 
-                    var numSamples = tempBuffer.Length / bytesPerSample;
+                    // Convert to float samples
+                    var numSamples = windowBytes.Length / bytesPerSample;
                     var floatSamples = new float[numSamples];
                     for (var k = 0; k < numSamples; k++)
                     {
-                        var pcmSample = BitConverter.ToInt16(tempBuffer, k * bytesPerSample);
+                        var pcmSample = BitConverter.ToInt16(windowBytes, k * bytesPerSample);
                         floatSamples[k] = pcmSample / 32768.0f;
                     }
 
@@ -344,7 +496,10 @@ public class TranscriptionService(
                     {
                         if (featureToggles.EnableDiagnosticLogging)
                             AnsiConsole.MarkupLine("[yellow]DEBUG: About to call processor.ProcessAsync...[/]");
+                        
+                        var windowTranscription = new StringBuilder();
                         var segmentReceived = false;
+                        
                         await foreach (var segmentData in processor.ProcessAsync(floatSamples).WithCancellation(cancellationToken))
                         {
                             segmentReceived = true;
@@ -356,8 +511,8 @@ public class TranscriptionService(
                             }
                             if (!string.IsNullOrWhiteSpace(segmentData.Text))
                             {
-                                transcriptionBuffer.Append(segmentData.Text); 
-                                onSegmentTranscribed(segmentData.Text); 
+                                windowTranscription.Append(segmentData.Text.Trim());
+                                windowTranscription.Append(" ");
                             }
                             else
                             {
@@ -366,6 +521,22 @@ public class TranscriptionService(
                                         "[yellow]DEBUG: Segment text is null or whitespace, not invoking callback.[/]");
                             }
                         }
+                        
+                        if (segmentReceived && windowTranscription.Length > 0)
+                        {
+                            var currentText = windowTranscription.ToString().Trim();
+                            var stitchedText = StitchTranscriptionSegments(previousTranscription, currentText);
+                            
+                            if (!string.IsNullOrWhiteSpace(stitchedText))
+                            {
+                                transcriptionBuffer.Append(stitchedText);
+                                transcriptionBuffer.Append(" ");
+                                onSegmentTranscribed(stitchedText);
+                            }
+                            
+                            previousTranscription = currentText;
+                        }
+                        
                         if (!segmentReceived && featureToggles.EnableDiagnosticLogging)
                         {
                             AnsiConsole.MarkupLine(
@@ -417,18 +588,11 @@ public class TranscriptionService(
             AnsiConsole.MarkupLine("[bold green]Live Transcription Complete (within TranscriptionService):[/]");
             AnsiConsole.WriteLine(transcriptionBuffer.ToString());
 
-            if (outputDirectory != null && transcriptionBuffer.Length > 0)
+            if (transcriptPath != null && transcriptionBuffer.Length > 0)
             {
-                if (!Directory.Exists(outputDirectory))
-                {
-                    Directory.CreateDirectory(outputDirectory);
-                }
-                var transcriptPath = Path.Combine(
-                    outputDirectory,
-                    $"LiveTranscript_{DateTime.Now:yyyyMMddHHmmss}_{modelName}.txt");
                 try
                 {
-                    await File.WriteAllTextAsync(transcriptPath, transcriptionBuffer.ToString());
+                    await File.WriteAllTextAsync(transcriptPath, transcriptionBuffer.ToString().Trim());
                     AnsiConsole.MarkupLine($"[green]Full transcript saved to: {Markup.Escape(transcriptPath)}[/]");
                 }
                 catch (Exception ex)
@@ -436,6 +600,82 @@ public class TranscriptionService(
                     AnsiConsole.MarkupLine($"[red]Error saving transcript: {Markup.Escape(ex.Message)}[/]");
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Stitches transcription segments together by detecting and removing duplicate words
+    /// that appear at the end of the previous segment and the start of the new segment.
+    /// </summary>
+    /// <param name="previousText">The previous transcription segment</param>
+    /// <param name="newText">The new transcription segment</param>
+    /// <returns>The deduplicated text to append (only new unique words)</returns>
+    private string StitchTranscriptionSegments(string previousText, string newText)
+    {
+        if (string.IsNullOrWhiteSpace(previousText))
+        {
+            // First segment, return as-is
+            return newText;
+        }
+
+        if (string.IsNullOrWhiteSpace(newText))
+        {
+            return string.Empty;
+        }
+
+        // Split into words
+        var previousWords = previousText.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+        var newWords = newText.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+
+        if (previousWords.Length == 0)
+        {
+            return newText;
+        }
+
+        if (newWords.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        // Look for overlapping words at the boundary
+        // Start with 2-word minimum match as specified by user
+        int maxOverlap = Math.Min(previousWords.Length, newWords.Length);
+        int overlapLength = 0;
+
+        // Try to find the longest overlap, starting from 2 words
+        for (int overlap = Math.Min(maxOverlap, 10); overlap >= 2; overlap--)
+        {
+            bool match = true;
+            for (int i = 0; i < overlap; i++)
+            {
+                string prevWord = previousWords[previousWords.Length - overlap + i];
+                string newWord = newWords[i];
+                
+                // Case-insensitive comparison for better matching
+                if (!prevWord.Equals(newWord, StringComparison.OrdinalIgnoreCase))
+                {
+                    match = false;
+                    break;
+                }
+            }
+
+            if (match)
+            {
+                overlapLength = overlap;
+                break;
+            }
+        }
+
+        if (overlapLength > 0)
+        {
+            // Found overlap, return only the non-overlapping part of new text
+            var uniqueWords = newWords.Skip(overlapLength);
+            return string.Join(" ", uniqueWords);
+        }
+        else
+        {
+            // No overlap found, return entire new text
+            return newText;
         }
     }
 }

@@ -8,10 +8,24 @@ namespace WhisperPrototype.Framework
 {
     public class FFmpegAudioChunker : IAudioChunker
     {
+        private readonly AppSettings _settings;
+
+        public FFmpegAudioChunker(AppSettings settings)
+        {
+            _settings = settings;
+        }
+
         public async Task<List<AudioSegment>> DetectSpeechSegmentsAsync(string wavFilePath, VADParameters parameters)
         {
-            AnsiConsole.MarkupLine($"[cyan]AUDIO CHUNKER: Starting speech segment detection for: {Markup.Escape(Path.GetFileName(wavFilePath))}[/]");
-            AnsiConsole.MarkupLine($"[grey]   Parameters: NoiseDB={parameters.SilenceDetectionNoiseDb}, MinSilenceSec={parameters.MinSilenceDurationSeconds}, MinSpeechSec={parameters.MinSpeechSegmentSeconds}, PaddingSec={parameters.SegmentPaddingSeconds}[/]");
+            if (_settings.Verbosity >= VerbosityLevel.Normal)
+            {
+                AnsiConsole.MarkupLine($"[cyan]   Step 2: Detecting speech segments...[/]");
+            }
+            
+            if (_settings.Verbosity >= VerbosityLevel.Debug)
+            {
+                AnsiConsole.MarkupLine($"[grey]   VAD Parameters: NoiseDB={parameters.SilenceDetectionNoiseDb}, MinSilence={parameters.MinSilenceDurationSeconds}s, MinSpeech={parameters.MinSpeechSegmentSeconds}s, Padding={parameters.SegmentPaddingSeconds}s[/]");
+            }
 
             var silencePoints = new List<double>();
             var process = new Process
@@ -31,33 +45,45 @@ namespace WhisperPrototype.Framework
             process.ErrorDataReceived += (sender, e) => { 
                 if (e.Data != null) 
                 {
-                    errorOutput += e.Data + "\n"; // Accumulate stderr
-                    //AnsiConsole.MarkupLine($"[grey]FFMPEG (stderr): {Markup.Escape(e.Data)}[/]");
+                    errorOutput += e.Data + "\n";
                     var match = Regex.Match(e.Data, @"silence_(start|end): (\d+\.?\d*)");
                     if (match.Success)
                     {
                         var time = double.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
                         silencePoints.Add(time);
-                        // AnsiConsole.MarkupLine($"[green]   Detected {match.Groups[1].Value} at {time}s[/]");
                     }
                 }
             };
 
-            AnsiConsole.MarkupLine($"[grey]   Running FFmpeg silencedetect... Command: {Markup.Escape(process.StartInfo.Arguments)}[/]");
+            if (_settings.Verbosity >= VerbosityLevel.Debug)
+            {
+                AnsiConsole.MarkupLine($"[grey]   FFmpeg command: {Markup.Escape(process.StartInfo.Arguments)}[/]");
+            }
+
             process.Start();
             process.BeginErrorReadLine();
-            process.BeginOutputReadLine(); // Also consume stdout to prevent blocking
+            process.BeginOutputReadLine();
             await process.WaitForExitAsync();
-            AnsiConsole.MarkupLine("[grey]   FFmpeg process finished.[/]");
 
             if (process.ExitCode != 0)
             {
-                AnsiConsole.MarkupLine($"[red]AUDIO CHUNKER: FFmpeg exited with code {process.ExitCode}.[/]");
-                AnsiConsole.MarkupLine($"[red]FFMPEG Full Stderr:\n{Markup.Escape(errorOutput)}[/]");
+                AnsiConsole.MarkupLine($"[red]   Error: FFmpeg silencedetect failed with exit code {process.ExitCode}.[/]");
+                if (_settings.Verbosity >= VerbosityLevel.Debug)
+                {
+                    AnsiConsole.MarkupLine($"[red]   FFmpeg Stderr:\n{Markup.Escape(errorOutput)}[/]");
+                }
                 throw new Exception($"FFmpeg failed with exit code {process.ExitCode}. Check logs for details.");
             }
             
-            AnsiConsole.MarkupLine($"[grey]   Raw silence points from FFmpeg ({silencePoints.Count}): {string.Join(", ", silencePoints.Select(p => p.ToString("F3")))}[/]");
+            if (_settings.Verbosity >= VerbosityLevel.Verbose)
+            {
+                AnsiConsole.MarkupLine($"[grey]   Found {silencePoints.Count} silence points[/]");
+            }
+            
+            if (_settings.Verbosity >= VerbosityLevel.Debug)
+            {
+                AnsiConsole.MarkupLine($"[grey]   Silence points: {string.Join(", ", silencePoints.Select(p => p.ToString("F2")))}s[/]");
+            }
 
             // Sort points just in case FFmpeg output isn't strictly ordered (it usually is)
             silencePoints.Sort(); 
@@ -72,11 +98,15 @@ namespace WhisperPrototype.Framework
             var totalDuration = FFmpegWrapper.GetAudioDuration(wavFilePath);
             if (totalDuration == null)
             {
-                AnsiConsole.MarkupLine("[red]AUDIO CHUNKER: Could not determine total audio duration. Cannot reliably form the last speech segment.[/]");
+                AnsiConsole.MarkupLine("[red]   Error: Could not determine audio duration.[/]");
                 throw new Exception("Could not determine audio duration for VAD.");
             }
             var fileDurationSeconds = totalDuration.Value.TotalSeconds;
-            AnsiConsole.MarkupLine($"[grey]   Total audio duration: {fileDurationSeconds:F3}s[/]");
+            
+            if (_settings.Verbosity >= VerbosityLevel.Debug)
+            {
+                AnsiConsole.MarkupLine($"[grey]   Audio duration: {fileDurationSeconds:F2}s[/]");
+            }
 
             // Handle case with no silence detected (entire file is speech)
             if (!silencePoints.Any())
@@ -88,11 +118,17 @@ namespace WhisperPrototype.Framework
                          StartTime = TimeSpan.FromSeconds(Math.Max(0, 0 - parameters.SegmentPaddingSeconds)), 
                          EndTime = TimeSpan.FromSeconds(Math.Min(fileDurationSeconds, fileDurationSeconds + parameters.SegmentPaddingSeconds))
                      });
-                    AnsiConsole.MarkupLine($"[green]   No silence detected. Treating entire file as one segment: {speechSegments.Last()}[/]");
+                    if (_settings.Verbosity >= VerbosityLevel.Verbose)
+                    {
+                        AnsiConsole.MarkupLine($"[green]   No silence detected; treating entire file as one segment[/]");
+                    }
                 }
                 else
                 {
-                    AnsiConsole.MarkupLine("[yellow]   No silence detected, but file duration ({fileDurationSeconds:F3}s) is less than MinSpeechSegmentSeconds ({parameters.MinSpeechSegmentSeconds}s). No segments generated.[/]");
+                    if (_settings.Verbosity >= VerbosityLevel.Normal)
+                    {
+                        AnsiConsole.MarkupLine($"[yellow]   Warning: File too short ({fileDurationSeconds:F2}s) for segmentation. No segments generated.[/]");
+                    }
                 }
                 return speechSegments;
             }
@@ -139,21 +175,22 @@ namespace WhisperPrototype.Framework
                 if ((paddedSpeechEnd - paddedSpeechStart) >= parameters.MinSpeechSegmentSeconds)
                 {
                     speechSegments.Add(new AudioSegment { StartTime = TimeSpan.FromSeconds(paddedSpeechStart), EndTime = TimeSpan.FromSeconds(paddedSpeechEnd) });
-                    AnsiConsole.MarkupLine($"[green]   Added speech segment (after last silence): {speechSegments.Last()}[/]");
-                }
-                else
-                {
-                     AnsiConsole.MarkupLine($"[yellow]   Skipped short speech segment (after last silence): {TimeSpan.FromSeconds(paddedSpeechStart):g} -> {TimeSpan.FromSeconds(paddedSpeechEnd):g} (Duration: {(paddedSpeechEnd - paddedSpeechStart):F3}s)[/]");
                 }
             }
             
             if (!speechSegments.Any())
             {
-                AnsiConsole.MarkupLine("[yellow]AUDIO CHUNKER: No speech segments were ultimately derived after processing silence points and applying filters.[/]");
+                if (_settings.Verbosity >= VerbosityLevel.Normal)
+                {
+                    AnsiConsole.MarkupLine("[yellow]   Warning: No speech segments detected.[/]");
+                }
             }
             else
             {
-                AnsiConsole.MarkupLine($"[cyan]AUDIO CHUNKER: Detected {speechSegments.Count} speech segment(s).[/]");
+                if (_settings.Verbosity >= VerbosityLevel.Normal)
+                {
+                    AnsiConsole.MarkupLine($"[cyan]   Detected {speechSegments.Count} speech segment(s)[/]");
+                }
             }
             return speechSegments;
         }

@@ -9,5 +9,6 @@ public interface IWorkspace
     Task StartLiveTranscriptionAsync();
     Task<bool> SelectModelAsync();
     void LoadModel(FileInfo selectedModelFile);
+    bool IsModelLoaded { get; }
     event EventHandler<TranscribedDataEventArgs>? TranscribedDataAvailable;
 }

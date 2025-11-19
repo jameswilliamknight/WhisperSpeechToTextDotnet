@@ -1,0 +1,169 @@
+#!/bin/bash
+
+# WhisperPrototype - Start Script
+# Checks dependencies (FFmpeg), performs smart builds, and prevents sleep during execution.
+
+set -e  # Exit on error
+
+# Resolve the actual script location even if called through a symlink
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+cd "$SCRIPT_DIR"
+
+# Constants
+PROJECT_NAME="WhisperPrototype"
+BUILD_DIR="bin/Release/net9.0"
+BUILD_DLL="$BUILD_DIR/$PROJECT_NAME.dll"
+PROJECT_ASSETS="obj/project.assets.json"
+BUILD_AGE_THRESHOLD=1800  # 30 minutes in seconds
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# -----------------------------------------------------------------------------
+# 1. Dependency Checks
+# -----------------------------------------------------------------------------
+
+command_exists() {
+    command -v "$1" &> /dev/null
+}
+
+# Check .NET SDK
+if ! command_exists dotnet; then
+    echo -e "${RED}✗ Error: .NET SDK is not installed.${NC}"
+    echo "Please install .NET 9.0 SDK or higher."
+    exit 1
+fi
+
+# Check FFmpeg (Critical)
+if ! command_exists ffmpeg; then
+    echo -e "${RED}✗ FFmpeg is not installed.${NC}"
+    echo -e "${YELLOW}  FFmpeg is required for audio processing.${NC}"
+    echo
+    read -p "Would you like to install FFmpeg via apt now? (y/N) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Installing FFmpeg...${NC}"
+        sudo apt update && sudo apt install -y ffmpeg
+        echo -e "${GREEN}✓ FFmpeg installed${NC}"
+    else
+        echo -e "${RED}Cannot proceed without FFmpeg.${NC}"
+        exit 1
+    fi
+else
+    # Optional: Print version for debugging
+    FFMPEG_VER=$(ffmpeg -version | head -n1 | awk '{print $3}')
+    # echo -e "${GREEN}✓ FFmpeg $FFMPEG_VER detected${NC}"
+fi
+
+# -----------------------------------------------------------------------------
+# 2. Smart Build Logic (Lazy Build)
+# -----------------------------------------------------------------------------
+
+needs_restore() {
+    if [ ! -f "$PROJECT_ASSETS" ]; then return 0; fi
+    
+    # Check timestamp of .csproj vs assets json
+    ASSETS_TIME=$(stat -c %Y "$PROJECT_ASSETS" 2>/dev/null || echo 0)
+    CSPROJ_TIME=$(stat -c %Y "$PROJECT_NAME.csproj" 2>/dev/null || echo 0)
+    
+    if [ $CSPROJ_TIME -gt $ASSETS_TIME ]; then return 0; fi
+    return 1
+}
+
+needs_build() {
+    if [ ! -f "$BUILD_DLL" ]; then return 0; fi
+    
+    # Check if any source file (.cs) is newer than the DLL
+    DLL_TIME=$(stat -c %Y "$BUILD_DLL" 2>/dev/null || echo 0)
+    
+    # Find newest .cs file (efficiently)
+    NEWEST_CS=$(find . -name "*.cs" -not -path "*/obj/*" -not -path "*/bin/*" -printf "%T@ %p\n" | sort -n | tail -1 | cut -f1 -d".")
+    
+    if [ -z "$NEWEST_CS" ]; then return 1; fi # No source files?
+    
+    if [ "$NEWEST_CS" -gt "$DLL_TIME" ]; then return 0; fi
+    return 1
+}
+
+# Parse flags
+FORCE_BUILD=false
+APP_ARGS=()
+for arg in "$@"; do
+    case $arg in
+        -b|--build) FORCE_BUILD=true ;;
+        *) APP_ARGS+=("$arg") ;;
+    esac
+done
+
+# Restore if needed
+if needs_restore; then
+    echo -e "${BLUE}📦 Restoring packages...${NC}"
+    dotnet restore --verbosity quiet
+fi
+
+# Build if needed
+if [ "$FORCE_BUILD" = true ] || needs_build; then
+    echo -e "${BLUE}🔨 Building $PROJECT_NAME...${NC}"
+    dotnet build -c Release --nologo --verbosity quiet
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Build failed!${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Build successful${NC}"
+fi
+
+# -----------------------------------------------------------------------------
+# 3. Global Alias (Symlink)
+# -----------------------------------------------------------------------------
+
+SYMLINK_PATH="/usr/local/bin/whisper-proto"
+if [ ! -e "$SYMLINK_PATH" ] && [ -t 0 ]; then
+    # Only prompt if interactive
+    # echo -e "${YELLOW}ℹ Tip: You can run this app from anywhere with a symlink.${NC}"
+    # read -p "Create global 'whisper-proto' command? (y/N) " -n 1 -r
+    # echo
+    # if [[ $REPLY =~ ^[Yy]$ ]]; then
+    #    if sudo ln -sf "$SCRIPT_DIR/start" "$SYMLINK_PATH"; then
+    #        echo -e "${GREEN}✓ Symlink created. Run 'whisper-proto' from any folder.${NC}"
+    #    fi
+    # fi
+    : # Skipping explicit prompt to reduce friction, user can do it manually if they want
+fi
+
+# -----------------------------------------------------------------------------
+# 4. Execution with Sleep Prevention
+# -----------------------------------------------------------------------------
+
+USE_INHIBIT=false
+if command_exists systemd-inhibit; then
+    # Verify permissions
+    if systemd-inhibit --what=sleep:idle --who="Test" --why="Test" true 2>/dev/null; then
+        USE_INHIBIT=true
+    fi
+fi
+
+echo
+# echo -e "${GREEN}🚀 Starting $PROJECT_NAME...${NC}"
+
+if [ "$USE_INHIBIT" = true ]; then
+    exec systemd-inhibit \
+        --what=sleep:idle \
+        --who="WhisperPrototype" \
+        --why="Preventing sleep during transcription" \
+        --mode=block \
+        dotnet "$BUILD_DLL" "${APP_ARGS[@]}"
+else
+    exec dotnet "$BUILD_DLL" "${APP_ARGS[@]}"
+fi

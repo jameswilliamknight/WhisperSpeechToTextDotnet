@@ -1,9 +1,10 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
 using System.Reflection;
 using WhisperPrototype;
 using WhisperPrototype.Framework;
+using WhisperPrototype.Hardware;
 using WhisperPrototype.Providers;
 using Spectre.Console;
 
@@ -19,7 +20,7 @@ if (string.IsNullOrEmpty(assemblyDirectory))
 }
 
 var configuration = new ConfigurationBuilder()
-    .SetBasePath(assemblyDirectory) // <--- THIS IS THE KEY CHANGE
+    .SetBasePath(assemblyDirectory)
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
     .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production"}.json", optional: true)
     .AddEnvironmentVariables()
@@ -41,24 +42,15 @@ using var host = Host.CreateDefaultBuilder(args)
         // Core services
         services.AddSingleton<MenuEngine>();
         services.AddSingleton<IAudioConverter, FFmpegWrapper>();
+        services.AddSingleton<WindowsDriveMountService>();
+        services.AddSingleton<PathTranslationService>();
+        services.AddSingleton<SettingsManager>();
 
         // Register new VAD and Segment Processing services
         services.AddSingleton<IAudioChunker, FFmpegAudioChunker>();
 
-        // FFmpegAudioSegmentProcessor requires the base temporary directory path from AppSettings
-        services.AddSingleton<IAudioSegmentProcessor>(provider =>
-        {
-            var settings = provider.GetRequiredService<AppSettings>();
-            var tempDir = settings.TempDirectory;
-            if (string.IsNullOrEmpty(tempDir))
-            {
-                AnsiConsole.MarkupLine("[red]CRITICAL ERROR: AppSettings:TempDirectory is not configured. Segment processing will fail.[/]");
-                // Fallback to system temp if absolutely necessary, but configuration is preferred.
-                tempDir = Path.GetTempPath(); 
-                AnsiConsole.MarkupLine($"[yellow]Warning: Falling back to system temp directory for segments: {tempDir}[/]");
-            }
-            return new FFmpegAudioSegmentProcessor(tempDir);
-        });
+        // FFmpegAudioSegmentProcessor registration
+        services.AddSingleton<IAudioSegmentProcessor, FFmpegAudioSegmentProcessor>();
 
         // TranscriptionService now depends on IAudioChunker, IAudioSegmentProcessor, and AppSettings
         services.AddSingleton<ITranscriptionService, TranscriptionService>(); 
@@ -67,22 +59,63 @@ using var host = Host.CreateDefaultBuilder(args)
     })
     .Build();
 
+// Initialize User Settings
+var settingsManager = host.Services.GetRequiredService<SettingsManager>();
+await settingsManager.LoadSettingsAsync();
+
 AnsiConsole.MarkupLine("[bold green]Whisper Prototype Application Initialized[/]");
-AnsiConsole.MarkupLine($"[grey]Input Directory: {appSettingsInstance.InputDirectory ?? "Not Set"}[/]");
-AnsiConsole.MarkupLine($"[grey]Output Directory: {appSettingsInstance.OutputDirectory ?? "Not Set"}[/]");
-AnsiConsole.MarkupLine($"[grey]Temporary Directory: {appSettingsInstance.TempDirectory ?? "Not Set"}[/]");
-AnsiConsole.MarkupLine($"[grey]Models Directory (derived from Input): {Path.Combine(Path.GetDirectoryName(appSettingsInstance.InputDirectory) ?? string.Empty, "Models")}[/]"); // Illustrative
+
+if (settingsManager.IsConfigured())
+{
+    var inputDir = !string.IsNullOrEmpty(appSettingsInstance.InputDirectory) ? appSettingsInstance.InputDirectory : "[red]Not Set[/]";
+    var outputDir = !string.IsNullOrEmpty(appSettingsInstance.OutputDirectory) ? appSettingsInstance.OutputDirectory : "[red]Not Set[/]";
+    var tempDir = !string.IsNullOrEmpty(appSettingsInstance.TempDirectory) ? appSettingsInstance.TempDirectory : "[red]Not Set[/]";
+    var modelsDir = !string.IsNullOrEmpty(appSettingsInstance.ModelsDirectory)
+        ? appSettingsInstance.ModelsDirectory
+        : (!string.IsNullOrEmpty(appSettingsInstance.InputDirectory) 
+            ? Path.Combine(Path.GetDirectoryName(appSettingsInstance.InputDirectory) ?? string.Empty, Constants.ModelsDirectoryName) 
+            : "[red]Not Set[/]");
+
+    AnsiConsole.MarkupLine($"[grey]Input Directory: {inputDir}[/]");
+    AnsiConsole.MarkupLine($"[grey]Output Directory: {outputDir}[/]");
+    AnsiConsole.MarkupLine($"[grey]Temporary Directory: {tempDir}[/]");
+    AnsiConsole.MarkupLine($"[grey]Models Directory (derived from Input): {modelsDir}[/]");
+}
 
 var workspace = host.Services.GetRequiredService<IWorkspace>();
 var menuEngine = host.Services.GetRequiredService<MenuEngine>();
 var featureToggles = host.Services.GetRequiredService<FeatureToggles>();
 
-// Main application loop (simplified from your original structure for brevity in this diff)
+// Main application loop
 while (true)
 {
-    var choice = await menuEngine.DisplayMainMenuAndGetChoiceAsync();
+    var isConfigured = settingsManager.IsConfigured();
+    var isLiveConfigured = settingsManager.IsLiveTranscriptionConfigured();
+    var menuOptions = new List<string>();
+    
+    if (isConfigured)
+    {
+        menuOptions.Add("Select Model");
+        menuOptions.Add("Process Audio Recordings");
+        if (isLiveConfigured)
+        {
+            menuOptions.Add("Live Transcription");
+        }
+        menuOptions.Add("Configure Settings");
+    }
+    else
+    {
+        menuOptions.Add("Configure Settings (Required)");
+    }
+    menuOptions.Add("Exit");
+
+    var choice = await menuEngine.DisplayMainMenuAndGetChoiceAsync(menuOptions);
     switch (choice)
     {
+        case "Configure Settings":
+        case "Configure Settings (Required)":
+            await settingsManager.ShowConfigurationMenuAsync();
+            break;
         case "Select Model":
             await workspace.SelectModelAsync();
             break;
@@ -102,6 +135,4 @@ while (true)
             AnsiConsole.MarkupLine("[bold red]Exiting application.[/]");
             return;
     }
-    // AnsiConsole.MarkupLine("\nPress any key to return to the main menu...");
-    // Console.ReadKey();
 }

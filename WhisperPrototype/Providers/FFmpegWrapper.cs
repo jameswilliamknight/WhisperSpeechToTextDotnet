@@ -5,6 +5,13 @@ namespace WhisperPrototype.Providers;
 
 public class FFmpegWrapper : IAudioConverter
 {
+    private readonly AppSettings _settings;
+
+    public FFmpegWrapper(AppSettings settings)
+    {
+        _settings = settings;
+    }
+
     public void ToWav(string inputPath, string wavPath)
     {
         // ffmpeg command to convert input audio (like MP3) to 16kHz, 16-bit PCM, mono WAV
@@ -32,7 +39,10 @@ public class FFmpegWrapper : IAudioConverter
             CreateNoWindow = true
         };
 
-        AnsiConsole.WriteLine($"Executing: ffmpeg {ffmpegArgs}");
+        if (_settings.Verbosity >= VerbosityLevel.Debug)
+        {
+            AnsiConsole.WriteLine($"     FFmpeg command: {ffmpegArgs}");
+        }
 
         using var process = new Process();
         process.StartInfo = startInfo;
@@ -53,22 +63,22 @@ public class FFmpegWrapper : IAudioConverter
             }
             
             // ffmpeg returned a non-zero exit code, an error occurred
-            AnsiConsole.MarkupLine("[red]ffmpeg Error Output:[/]");
-            AnsiConsole.MarkupLine($"[red]{error}[/]");
-            throw new Exception(
-                $"ffmpeg process failed with exit code {process.ExitCode}. See console output for details.");
-
-            // Optional
-            // AnsiConsole.WriteLine("ffmpeg Output:");
-            // AnsiConsole.WriteLine(output);
-            // AnsiConsole.WriteLine("ffmpeg Error (info usually):");
-            // AnsiConsole.WriteLine(error);
+            AnsiConsole.MarkupLine($"[red]     FFmpeg conversion failed (exit code {process.ExitCode})[/]");
+            if (_settings.Verbosity >= VerbosityLevel.Debug)
+            {
+                AnsiConsole.MarkupLine($"[red]     Error output:[/]");
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(error)}[/]");
+            }
+            throw new Exception($"ffmpeg process failed with exit code {process.ExitCode}");
         }
         catch (Exception ex)
         {
             // Catch errors e.g. 'ffmpeg not found'
-            AnsiConsole.MarkupLine($"[red]Failed to run ffmpeg. Is ffmpeg installed and in the system's PATH?[/]");
-            AnsiConsole.MarkupLine($"[red]{ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[red]     Failed to run ffmpeg. Is it installed and in PATH?[/]");
+            if (_settings.Verbosity >= VerbosityLevel.Debug)
+            {
+                AnsiConsole.MarkupLine($"[red]     {Markup.Escape(ex.Message)}[/]");
+            }
             throw new Exception("ffmpeg execution failed.", ex);
         }
     }

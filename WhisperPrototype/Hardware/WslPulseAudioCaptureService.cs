@@ -67,6 +67,10 @@ public class WslPulseAudioCaptureService : IAudioCaptureService
                 {
                     // string index = match.Groups[1].Value; // Not used as ID directly
                     var sourceName = match.Groups[2].Value; // This is the PulseAudio source name, use as ID
+
+                    // Filter out monitor devices (output mirrors) which clutter the list
+                    if (sourceName.EndsWith(".monitor")) continue;
+
                     // string driver = match.Groups[3].Value;
                     // string format = match.Groups[4].Value;
                     var description = match.Groups[5].Value.Split('\t').LastOrDefault()?.Trim() ?? sourceName;

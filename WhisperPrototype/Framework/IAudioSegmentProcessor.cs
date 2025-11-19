@@ -13,8 +13,9 @@ namespace WhisperPrototype.Framework
         /// <param name="segment">The specific audio segment to process.</param>
         /// <param name="segmentIndex">The index of the current segment (for naming temporary files, if any).</param>
         /// <param name="totalSegments">Total number of segments for context.</param>
+        /// <param name="workingDirectory">The directory where temporary segment files should be stored.</param>
         /// <returns>A Stream containing the audio data for the specified segment. The caller is responsible for disposing this stream.</returns>
-        Task<Stream> GetSegmentStreamAsync(string parentWavFilePath, AudioSegment segment, int segmentIndex, int totalSegments);
+        Task<Stream> GetSegmentStreamAsync(string parentWavFilePath, AudioSegment segment, int segmentIndex, int totalSegments, string workingDirectory);
 
         // Potential future methods if Whisper.net can efficiently consume byte[] or float[] directly for segments:
         // Task<byte[]> GetSegmentBytesAsync(string parentWavFilePath, AudioSegment segment);
