@@ -7,13 +7,16 @@ using WhisperPrototype.Hardware; // For IAudioConverter
 using NAudio.Wave;
 using WhisperPrototype.Events;
 using WhisperPrototype.Providers;
+using WhisperPrototype.Framework.Stitching;
+using WhisperPrototype.Framework.Buffering;
 
 namespace WhisperPrototype.Framework;
 
 public class TranscriptionService(
     IAudioChunker audioChunker,
     IAudioSegmentProcessor segmentProcessor,
-    AppSettings appSettings)
+    AppSettings appSettings,
+    ITranscriptionStitcher? stitcher = null)
     : ITranscriptionService
 {
     public async Task TranscribeFileAsync(
@@ -388,6 +391,10 @@ public class TranscriptionService(
             .Build();
 
         AnsiConsole.MarkupLine($"[green]Whisper.net ready with language: en[/]");
+        
+        // Create stitcher if not injected
+        var transcriptionStitcher = stitcher ?? StitcherFactory.CreateStitcher(appSettings);
+        AnsiConsole.MarkupLine($"[grey]Using stitching algorithm: {transcriptionStitcher.AlgorithmName}[/]");
 
         // Prepare output file path and display it prominently
         string? transcriptPath = null;
@@ -434,25 +441,76 @@ public class TranscriptionService(
             AnsiConsole.MarkupLine($"[green]Using device: {Markup.Escape(selectedInputDevice.Name)}[/]");
         }
 
-        // Overlapping window configuration
-        const float windowDurationSeconds = 10.0f;
-        const float advanceIntervalSeconds = 2.0f;
+        // Overlapping window configuration (from settings)
+        float windowDurationSeconds = appSettings.LiveWindowDurationSeconds;
+        float advanceIntervalSeconds = appSettings.LiveAdvanceIntervalSeconds;
         const int bytesPerSample = 2; // 16-bit audio
         const int channels = 1; // Mono audio
         const int sampleRate = 16000; // 16kHz
         const int bytesPerSecond = sampleRate * bytesPerSample * channels;
-        const int windowSizeInBytes = (int)(bytesPerSecond * windowDurationSeconds);
-        const int advanceIntervalBytes = (int)(bytesPerSecond * advanceIntervalSeconds);
+        int windowSizeInBytes = (int)(bytesPerSecond * windowDurationSeconds);
+        int advanceIntervalBytes = (int)(bytesPerSecond * advanceIntervalSeconds);
+
+        AnsiConsole.MarkupLine($"[grey]Window: {windowDurationSeconds}s, Advance: {advanceIntervalSeconds}s, Confidence: {appSettings.LiveConfidenceThreshold}[/]");
+
+        // Initialize Voice Activity Detection for end-of-speech detection
+        SimpleVAD? vad = null;
+        if (appSettings.LiveUseVAD)
+        {
+            vad = new SimpleVAD(
+                appSettings.LiveVADEnergyThreshold,
+                appSettings.LiveVADSilenceDurationSeconds);
+            AnsiConsole.MarkupLine($"[grey]VAD enabled: will auto-process on {appSettings.LiveVADSilenceDurationSeconds}s silence[/]");
+        }
 
         var circularBuffer = new CircularAudioBuffer(windowSizeInBytes);
-        var transcriptionBuffer = new StringBuilder();
+        
+        // Create file stream for real-time writing (with proper flushing for WSL/Windows filesystem)
+        StreamWriter? fileWriter = null;
+        if (transcriptPath != null)
+        {
+            // Use FileOptions.WriteThrough to ensure writes are committed to disk immediately
+            // This is especially important for WSL writing to Windows filesystem
+            var fileStream = new FileStream(
+                transcriptPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.Read,
+                bufferSize: 4096,
+                FileOptions.WriteThrough | FileOptions.Asynchronous);
+            
+            fileWriter = new StreamWriter(fileStream, System.Text.Encoding.UTF8)
+            {
+                AutoFlush = true // Ensure each write is flushed immediately
+            };
+            
+            AnsiConsole.MarkupLine("[grey]Real-time file streaming enabled - transcript will be saved as you speak[/]");
+        }
+        
+        // Create confidence tracking buffer with both display and file write callbacks
+        var displayBuffer = new ConfidenceTrackingBuffer(
+            (int)appSettings.LiveConfidenceThreshold,
+            appSettings.LiveTranscriptionDraftWords,
+            (finalizedText) => 
+            {
+                onSegmentTranscribed(finalizedText);
+                // Also write to file in real-time
+                fileWriter?.Write(finalizedText);
+            });
+        
         var previousTranscription = string.Empty;
         int bytesProcessedSinceLastWindow = 0;
 
         Func<object?, AudioDataAvailableEventArgs, Task> audioDataHandler = async (_, args) =>
         {
             if (args.BytesRecorded <= 0) return;
-            await Task.Run(() => circularBuffer.Write(args.Buffer, 0, args.BytesRecorded), cancellationToken);
+            await Task.Run(() => 
+            {
+                circularBuffer.Write(args.Buffer, 0, args.BytesRecorded);
+                
+                // Update VAD with new audio data
+                vad?.ProcessAudio(args.Buffer, 0, args.BytesRecorded);
+            }, cancellationToken);
             bytesProcessedSinceLastWindow += args.BytesRecorded;
             if (featureToggles.LogAudioDataReceivedMessages)
             {
@@ -471,14 +529,29 @@ public class TranscriptionService(
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                // Check if we have enough audio data and have advanced enough since last window
-                if (circularBuffer.AvailableBytes >= windowSizeInBytes && 
-                    bytesProcessedSinceLastWindow >= advanceIntervalBytes)
+                // Check if we should process audio:
+                // 1. Normal case: full window + advanced enough
+                bool shouldProcessNormal = circularBuffer.AvailableBytes >= windowSizeInBytes && 
+                                          bytesProcessedSinceLastWindow >= advanceIntervalBytes;
+                
+                // 2. VAD case: silence detected and we have enough audio to process
+                int minVADBufferBytes = bytesPerSecond * appSettings.LiveVADMinBufferSeconds;
+                bool shouldProcessVAD = vad != null && 
+                                       vad.IsSilent && 
+                                       circularBuffer.AvailableBytes >= minVADBufferBytes;
+                
+                if (shouldProcessNormal || shouldProcessVAD)
                 {
                     bytesProcessedSinceLastWindow = 0;
                     
-                    if (featureToggles.LogProcessingChunkMessages)
-                        AnsiConsole.MarkupLine($"[cyan]Processing 10s audio window ({windowSizeInBytes} bytes)...[/]");
+                    if (shouldProcessVAD)
+                    {
+                        AnsiConsole.MarkupLine($"[dim cyan]VAD: Silence detected, processing final speech segment...[/]");
+                    }
+                    else if (featureToggles.LogProcessingChunkMessages)
+                    {
+                        AnsiConsole.MarkupLine($"[cyan]Processing audio window ({windowSizeInBytes} bytes)...[/]");
+                    }
 
                     // Get the complete window from circular buffer
                     var windowBytes = circularBuffer.ReadAll();
@@ -525,16 +598,20 @@ public class TranscriptionService(
                         if (segmentReceived && windowTranscription.Length > 0)
                         {
                             var currentText = windowTranscription.ToString().Trim();
-                            var stitchedText = StitchTranscriptionSegments(previousTranscription, currentText);
+                            var stitchedText = transcriptionStitcher.StitchSegments(previousTranscription, currentText);
                             
                             if (!string.IsNullOrWhiteSpace(stitchedText))
                             {
-                                transcriptionBuffer.Append(stitchedText);
-                                transcriptionBuffer.Append(" ");
-                                onSegmentTranscribed(stitchedText);
+                                displayBuffer.AddStitchedText(stitchedText);
                             }
                             
                             previousTranscription = currentText;
+                        }
+                        
+                        // Reset VAD after processing silence-triggered segment
+                        if (shouldProcessVAD && vad != null)
+                        {
+                            vad.Reset();
                         }
                         
                         if (!segmentReceived && featureToggles.EnableDiagnosticLogging)
@@ -567,6 +644,52 @@ public class TranscriptionService(
             if (cancellationToken.IsCancellationRequested)
             {
                 AnsiConsole.MarkupLine("[yellow]Live transcription cancellation requested.[/]");
+                
+                // Process any remaining audio in the buffer before exiting
+                if (circularBuffer.AvailableBytes >= bytesPerSecond * 2) // At least 2 seconds of audio
+                {
+                    AnsiConsole.MarkupLine("[cyan]Processing remaining audio in buffer...[/]");
+                    
+                    try
+                    {
+                        var remainingBytes = circularBuffer.ReadAll();
+                        var numSamples = remainingBytes.Length / bytesPerSample;
+                        var floatSamples = new float[numSamples];
+                        
+                        for (var k = 0; k < numSamples; k++)
+                        {
+                            var pcmSample = BitConverter.ToInt16(remainingBytes, k * bytesPerSample);
+                            floatSamples[k] = pcmSample / 32768.0f;
+                        }
+                        
+                        var finalTranscription = new StringBuilder();
+                        await foreach (var segmentData in processor.ProcessAsync(floatSamples))
+                        {
+                            if (!string.IsNullOrWhiteSpace(segmentData.Text))
+                            {
+                                finalTranscription.Append(segmentData.Text.Trim());
+                                finalTranscription.Append(" ");
+                            }
+                        }
+                        
+                        if (finalTranscription.Length > 0)
+                        {
+                            var currentText = finalTranscription.ToString().Trim();
+                            var stitchedText = transcriptionStitcher.StitchSegments(previousTranscription, currentText);
+                            
+                            if (!string.IsNullOrWhiteSpace(stitchedText))
+                            {
+                                displayBuffer.AddStitchedText(stitchedText);
+                            }
+                        }
+                        
+                        AnsiConsole.MarkupLine("[green]Remaining audio processed.[/]");
+                    }
+                    catch (Exception ex)
+                    {
+                        AnsiConsole.MarkupLine($"[yellow]Note: Could not process remaining audio: {Markup.Escape(ex.Message)}[/]");
+                    }
+                }
             }
         }
         catch (OperationCanceledException) // Catches cancellation from StartCaptureAsync or before the loop
@@ -583,22 +706,42 @@ public class TranscriptionService(
             // StopCaptureAsync and DisposeAsync for audioCaptureService should be managed by the caller (Workspace)
             // as it created and owns the service instance.
 
-            AnsiConsole.MarkupLine("[green]Audio capture processing finished in TranscriptionService.[/]");
-            AnsiConsole.WriteLine(); // Ensure a newline before final summary
-            AnsiConsole.MarkupLine("[bold green]Live Transcription Complete (within TranscriptionService):[/]");
-            AnsiConsole.WriteLine(transcriptionBuffer.ToString());
+            // Flush any remaining draft words to both console and file
+            displayBuffer.Flush();
+            var finalTranscript = displayBuffer.GetAccumulatedText();
 
-            if (transcriptPath != null && transcriptionBuffer.Length > 0)
+            // Ensure file writer is properly closed and flushed
+            if (fileWriter != null)
             {
                 try
                 {
-                    await File.WriteAllTextAsync(transcriptPath, transcriptionBuffer.ToString().Trim());
-                    AnsiConsole.MarkupLine($"[green]Full transcript saved to: {Markup.Escape(transcriptPath)}[/]");
+                    // Flush and close the file writer
+                    await fileWriter.FlushAsync();
+                    await fileWriter.DisposeAsync();
+                    AnsiConsole.MarkupLine($"[green]Transcript file closed and flushed: {Markup.Escape(transcriptPath ?? "unknown")}[/]");
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[red]Error saving transcript: {Markup.Escape(ex.Message)}[/]");
+                    AnsiConsole.MarkupLine($"[red]Error closing transcript file: {Markup.Escape(ex.Message)}[/]");
                 }
+            }
+
+            AnsiConsole.MarkupLine("[green]Audio capture processing finished in TranscriptionService.[/]");
+            AnsiConsole.WriteLine(); // Ensure a newline before final summary
+            AnsiConsole.MarkupLine("[bold green]Live Transcription Complete (within TranscriptionService):[/]");
+            
+            var stats = displayBuffer.GetStatistics();
+            AnsiConsole.MarkupLine($"[grey]Total words finalized: {stats.WordsFinalized}[/]");
+            
+            if (!string.IsNullOrWhiteSpace(finalTranscript))
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.WriteLine(finalTranscript);
+            }
+            
+            if (transcriptPath != null)
+            {
+                AnsiConsole.MarkupLine($"[green]Full transcript saved to: {Markup.Escape(transcriptPath)}[/]");
             }
         }
     }

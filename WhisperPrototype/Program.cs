@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using System.Reflection;
 using WhisperPrototype;
 using WhisperPrototype.Framework;
+using WhisperPrototype.Framework.Stitching;
 using WhisperPrototype.Hardware;
 using WhisperPrototype.Providers;
 using Spectre.Console;
@@ -52,7 +53,11 @@ using var host = Host.CreateDefaultBuilder(args)
         // FFmpegAudioSegmentProcessor registration
         services.AddSingleton<IAudioSegmentProcessor, FFmpegAudioSegmentProcessor>();
 
-        // TranscriptionService now depends on IAudioChunker, IAudioSegmentProcessor, and AppSettings
+        // Register stitching service using factory
+        services.AddSingleton<ITranscriptionStitcher>(sp => 
+            StitcherFactory.CreateStitcher(sp.GetRequiredService<AppSettings>()));
+
+        // TranscriptionService now depends on IAudioChunker, IAudioSegmentProcessor, AppSettings, and optional ITranscriptionStitcher
         services.AddSingleton<ITranscriptionService, TranscriptionService>(); 
 
         services.AddSingleton<IWorkspace, Workspace>();

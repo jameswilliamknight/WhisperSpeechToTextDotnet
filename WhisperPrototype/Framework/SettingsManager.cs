@@ -58,6 +58,22 @@ public class SettingsManager
                 _appSettings.MinSilenceDurationSeconds = savedSettings.MinSilenceDurationSeconds;
                 _appSettings.MinSpeechSegmentSeconds = savedSettings.MinSpeechSegmentSeconds;
                 _appSettings.SegmentPaddingSeconds = savedSettings.SegmentPaddingSeconds;
+                
+                // Restore live transcription settings
+                _appSettings.LiveWindowDurationSeconds = savedSettings.LiveWindowDurationSeconds;
+                _appSettings.LiveAdvanceIntervalSeconds = savedSettings.LiveAdvanceIntervalSeconds;
+                _appSettings.LiveStitchingAlgorithm = savedSettings.LiveStitchingAlgorithm;
+                _appSettings.StitchMinimumWordMatch = savedSettings.StitchMinimumWordMatch;
+                _appSettings.StitchDiscardPreviousWords = savedSettings.StitchDiscardPreviousWords;
+                _appSettings.StitchUseWeighting = savedSettings.StitchUseWeighting;
+                _appSettings.StitchUseFuzzyMatching = savedSettings.StitchUseFuzzyMatching;
+                _appSettings.StitchFuzzyThreshold = savedSettings.StitchFuzzyThreshold;
+                _appSettings.LiveConfidenceThreshold = savedSettings.LiveConfidenceThreshold;
+                _appSettings.LiveTranscriptionDraftWords = savedSettings.LiveTranscriptionDraftWords;
+                _appSettings.LiveUseVAD = savedSettings.LiveUseVAD;
+                _appSettings.LiveVADEnergyThreshold = savedSettings.LiveVADEnergyThreshold;
+                _appSettings.LiveVADSilenceDurationSeconds = savedSettings.LiveVADSilenceDurationSeconds;
+                _appSettings.LiveVADMinBufferSeconds = savedSettings.LiveVADMinBufferSeconds;
             }
         }
         catch (Exception ex)

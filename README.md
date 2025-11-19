@@ -99,6 +99,7 @@ sha1sum ./models/ggml-large-v3.bin
 
 -   [High-Level Plan](./docs/live_transcription/README.md)
 -   [Implementation Details](./docs/live_transcription/Details.md)
+-   [Boundary-Weighted Stitching Algorithm](./docs/BoundaryWeightedStitching.md) - Novel approach to deduplicating overlapping transcription segments
 
 #### Model Management Features
 
