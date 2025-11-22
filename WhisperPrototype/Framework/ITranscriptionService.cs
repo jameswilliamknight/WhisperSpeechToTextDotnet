@@ -12,8 +12,7 @@ public interface ITranscriptionService
         string modelName,
         string outputDirectory,
         IAudioConverter audioConverter,
-        string tempDirectoryPath,
-        Spectre.Console.ProgressContext? progressContext = null);
+        string tempDirectoryPath);
 
     Task TranscribeAllFilesAsync(
         IEnumerable<FileInfo> audioFiles,
