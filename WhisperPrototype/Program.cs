@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using System.Reflection;
 using WhisperPrototype;
 using WhisperPrototype.Framework;
+using WhisperPrototype.Framework.Models;
 using WhisperPrototype.Framework.Stitching;
 using WhisperPrototype.Hardware;
 using WhisperPrototype.Providers;
