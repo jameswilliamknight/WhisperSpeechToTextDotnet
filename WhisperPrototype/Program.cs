@@ -55,11 +55,11 @@ using var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IAudioSegmentProcessor, FFmpegAudioSegmentProcessor>();
 
         // Register stitching service using factory
-        services.AddSingleton<ITranscriptionStitcher>(sp => 
+        services.AddSingleton<ITranscriptionStitcher>(sp =>
             StitcherFactory.CreateStitcher(sp.GetRequiredService<AppSettings>()));
 
         // TranscriptionService now depends on IAudioChunker, IAudioSegmentProcessor, AppSettings, and optional ITranscriptionStitcher
-        services.AddSingleton<ITranscriptionService, TranscriptionService>(); 
+        services.AddSingleton<ITranscriptionService, TranscriptionService>();
 
         services.AddSingleton<IWorkspace, Workspace>();
     })
@@ -69,8 +69,6 @@ using var host = Host.CreateDefaultBuilder(args)
 var settingsManager = host.Services.GetRequiredService<SettingsManager>();
 await settingsManager.LoadSettingsAsync();
 
-AnsiConsole.MarkupLine("[bold green]Whisper Prototype Application Initialized[/]");
-
 if (settingsManager.IsConfigured())
 {
     var inputDir = !string.IsNullOrEmpty(appSettingsInstance.InputDirectory) ? appSettingsInstance.InputDirectory : "[red]Not Set[/]";
@@ -78,8 +76,8 @@ if (settingsManager.IsConfigured())
     var tempDir = !string.IsNullOrEmpty(appSettingsInstance.TempDirectory) ? appSettingsInstance.TempDirectory : "[red]Not Set[/]";
     var modelsDir = !string.IsNullOrEmpty(appSettingsInstance.ModelsDirectory)
         ? appSettingsInstance.ModelsDirectory
-        : (!string.IsNullOrEmpty(appSettingsInstance.InputDirectory) 
-            ? Path.Combine(Path.GetDirectoryName(appSettingsInstance.InputDirectory) ?? string.Empty, Constants.ModelsDirectoryName) 
+        : (!string.IsNullOrEmpty(appSettingsInstance.InputDirectory)
+            ? Path.Combine(Path.GetDirectoryName(appSettingsInstance.InputDirectory) ?? string.Empty, Constants.ModelsDirectoryName)
             : "[red]Not Set[/]");
 
     AnsiConsole.MarkupLine($"[grey]Input Directory: {inputDir}[/]");
@@ -100,16 +98,32 @@ var modelManager = new WhisperPrototype.Framework.Models.ModelManager(
     appSettingsInstance,
     settingsManager);
 
+// Ensure model cache exists at startup
+await modelManager.EnsureCacheExistsAsync();
+
+// Load the active model if one was previously selected (silent mode)
+var modelLoaded = await workspace.SelectModelAsync(silent: true);
+
+// Display startup status
+if (modelLoaded && !string.IsNullOrEmpty(workspace.ModelName))
+{
+    AnsiConsole.MarkupLine($"[bold green]✓[/] Model loaded: [cyan]{Markup.Escape(workspace.ModelName ?? "")}[/]");
+}
+else
+{
+    AnsiConsole.MarkupLine("[red]⚠ No model configured - please select a model from 'Speech Recognition Models'[/]");
+}
+
 // Main application loop
 while (true)
 {
     var isConfigured = settingsManager.IsConfigured();
     var isLiveConfigured = settingsManager.IsLiveTranscriptionConfigured();
     var menuOptions = new List<string>();
-    
+
     // Speech Recognition Models is always first and always visible
     menuOptions.Add("Speech Recognition Models");
-    
+
     if (isConfigured)
     {
         menuOptions.Add("Process Audio Recordings");
@@ -130,16 +144,95 @@ while (true)
     {
         case "Speech Recognition Models":
             await modelManager.ShowModelMenuAsync();
+            // Load the model into workspace if one was selected
+            await workspace.SelectModelAsync();
             break;
         case "Configure Settings":
         case "Configure Settings (Required)":
-            await settingsManager.ShowConfigurationMenuAsync();
+            await settingsManager.ShowConfigurationMenuAsync(
+                async () => await modelManager.FetchRemoteModelsAsync(force: true));
             break;
         case "Process Audio Recordings":
             var audioFiles = workspace.GetAudioRecordings();
+
+            // Custom multi-select handler with collision detection
             await menuEngine.SelectMultipleAndProcessAsync(
                 audioFiles,
-                async (chosenFiles) => await workspace.TranscribeAll(chosenFiles),
+                async (chosenFiles) =>
+                {
+                    // Get current model name for collision detection
+                    if (!workspace.IsModelLoaded)
+                    {
+                        AnsiConsole.MarkupLine("[yellow]No model loaded. Please select a model first.[/]");
+                        return;
+                    }
+
+                    var modelName = workspace.ModelName;
+                    if (string.IsNullOrEmpty(modelName))
+                    {
+                        AnsiConsole.MarkupLine("[red]Error: Model name is not available.[/]");
+                        return;
+                    }
+
+                    var outputDirectory = appSettingsInstance.OutputDirectory;
+                    if (string.IsNullOrEmpty(outputDirectory))
+                    {
+                        AnsiConsole.MarkupLine("[red]Error: Output directory is not configured.[/]");
+                        return;
+                    }
+
+                    // Check for collisions
+                    var filesWithExistingOutput = chosenFiles
+                        .Where(file => File.Exists(TranscriptionPathHelper.GetTranscriptionOutputPath(file, modelName, outputDirectory)))
+                        .ToList();
+
+                    FileInfo[] finalFilesToProcess = chosenFiles.ToArray();
+
+                    if (filesWithExistingOutput.Any())
+                    {
+                        // Show collision warning
+                        AnsiConsole.WriteLine();
+                        AnsiConsole.MarkupLine($"[yellow]⚠ Warning:[/] {filesWithExistingOutput.Count} file(s) have already been transcribed with {Markup.Escape(modelName)}");
+
+                        foreach (var file in filesWithExistingOutput)
+                        {
+                            var outputPath = TranscriptionPathHelper.GetTranscriptionOutputPath(file, modelName, outputDirectory);
+                            var outputFileName = Path.GetFileName(outputPath);
+                            AnsiConsole.MarkupLine($"  [grey]-[/] {Markup.Escape(file.Name)}  [grey]->  {Markup.Escape(outputFileName)}[/]");
+                        }
+
+                        AnsiConsole.WriteLine();
+                        AnsiConsole.MarkupLine("[cyan]Select files to process (re-select to overwrite existing):[/]");
+
+                        // Re-prompt with colliding files deselected by default
+                        var defaultSelections = chosenFiles
+                            .Where(file => !filesWithExistingOutput.Contains(file))
+                            .ToList();
+
+                        // Sort: collisions first, then non-collisions (both in original order)
+                        var sortedChosenFiles = filesWithExistingOutput
+                            .Concat(chosenFiles.Where(f => !filesWithExistingOutput.Contains(f)))
+                            .ToList();
+
+                        var reselectedFiles = await menuEngine.SelectMultipleAsync(
+                            sortedChosenFiles,  // Show only originally selected files, sorted with collisions first
+                            "Audio Recording",
+                            fi => fi.Name,
+                            defaultSelections
+                        );
+
+                        if (reselectedFiles == null || !reselectedFiles.Any())
+                        {
+                            AnsiConsole.MarkupLine("[yellow]No files selected for processing.[/]");
+                            return;
+                        }
+
+                        finalFilesToProcess = reselectedFiles.ToArray();
+                    }
+
+                    // Process the final selection
+                    await workspace.TranscribeAll(finalFilesToProcess);
+                },
                 "Audio Recording",
                 fi => fi.Name
             );

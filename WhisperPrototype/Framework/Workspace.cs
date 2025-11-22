@@ -22,7 +22,7 @@ public class Workspace(
 #pragma warning restore CS9113
 {
     private string? ModelPath { get; set; }
-    private string? ModelName { get; set; }
+    public string? ModelName { get; private set; }
 
     public bool IsModelLoaded => !string.IsNullOrEmpty(ModelPath) && !string.IsNullOrEmpty(ModelName);
 
@@ -74,7 +74,7 @@ public class Workspace(
     /// </summary>
     public event EventHandler<TranscribedDataEventArgs>? TranscribedDataAvailable;
 
-    public async Task<bool> SelectModelAsync()
+    public async Task<bool> SelectModelAsync(bool silent = false)
     {
         // Check if an active model is set in config
         if (!string.IsNullOrEmpty(Config.ActiveModelPath) && File.Exists(Config.ActiveModelPath))
@@ -83,10 +83,13 @@ public class Workspace(
             return true;
         }
 
-        // No active model, show warning
-        AnsiConsole.MarkupLine("[yellow]No active model configured.[/]");
-        AnsiConsole.MarkupLine("[grey]Please go to 'Speech Recognition Models' in the main menu to select or download a model.[/]");
-        await Task.Delay(3000);
+        // No active model - show warning only if not silent
+        if (!silent)
+        {
+            AnsiConsole.MarkupLine("[yellow]No active model configured.[/]");
+            AnsiConsole.MarkupLine("[grey]Please go to 'Speech Recognition Models' in the main menu to select or download a model.[/]");
+            await Task.Delay(3000);
+        }
         return false;
     }
 
@@ -94,7 +97,6 @@ public class Workspace(
     {
         var tempModelPath = selectedModelFile.FullName;
         var tempModelName = selectedModelFile.Name;
-        AnsiConsole.WriteLine($"Selected model: {tempModelPath}");
 
         if (!File.Exists(tempModelPath))
         {
@@ -104,8 +106,6 @@ public class Workspace(
                 $"(e.g., bin/Debug/net9.0/Models/)[/] - [yellow]which is soon to change, FYI.[/]");
             return; // Exit the application
         }
-
-        AnsiConsole.WriteLine($"Found model file: {tempModelPath}");
 
         if (!Directory.Exists(Config.InputDirectory))
         {
@@ -133,10 +133,9 @@ public class Workspace(
     {
         if (!IsModelLoaded)
         {
-            AnsiConsole.MarkupLine("[yellow]Model not loaded. Please select a model first.[/]");
             if (!await SelectModelAsync())
             {
-                return; // User cancelled model selection
+                return; // Model could not be loaded
             }
         }
 
@@ -183,7 +182,7 @@ public class Workspace(
         var audioFilePathsM4a = Directory.GetFiles(Config.InputDirectory, "*.m4a");
         var audioFilePathsMp3 = Directory.GetFiles(Config.InputDirectory, "*.mp3");
         var audioFilePaths = audioFilePathsM4a.Concat(audioFilePathsMp3);
-        var audioFileInfos = audioFilePaths.Select(path => new FileInfo(path)).ToList();
+        var audioFileInfos = audioFilePaths.Select(path => new FileInfo(path)).Where(x => !x.Name.StartsWith(".")).OrderByDescending(x => x.CreationTime).ToList();
 
         if (!audioFileInfos.Any())
         {
@@ -202,10 +201,9 @@ public class Workspace(
     {
         if (!IsModelLoaded)
         {
-            AnsiConsole.MarkupLine("[yellow]Model not loaded. Please select a model first.[/]");
             if (!await SelectModelAsync())
             {
-                return; // User cancelled model selection
+                return; // Model could not be loaded
             }
         }
 
@@ -219,10 +217,10 @@ public class Workspace(
 
         // CancellationTokenSource to signal stop from Workspace to TranscriptionService
         using var cts = new CancellationTokenSource();
-        
+
         // Allow Ctrl+C to be captured as input
         Console.TreatControlCAsInput = true;
-        
+
         // Register Ctrl+C handler
         ConsoleCancelEventHandler cancelHandler = (sender, e) =>
         {
@@ -236,7 +234,7 @@ public class Workspace(
         {
             var availableDevices = (await audioCaptureService.GetAvailableDevicesAsync()).ToList();
             // This check is also in TranscriptionService, but good to have early exit here too.
-            if (!availableDevices.Any()) 
+            if (!availableDevices.Any())
             {
                 AnsiConsole.MarkupLine(
                     "[yellow]No audio input devices found in Workspace. Please ensure a microphone is connected and configured.[/]");
@@ -257,9 +255,9 @@ public class Workspace(
                     .AddChoices(availableDevices.Select(d => d.Name));
 
                 selectionPrompt.AddChoice(GoBackOption);
-                
+
                 var selectedDisplayName = await AnsiConsole.PromptAsync(selectionPrompt);
-                
+
                 if (selectedDisplayName == GoBackOption)
                 {
                     throw new OperationCanceledException("User cancelled device selection.");
@@ -274,7 +272,7 @@ public class Workspace(
         // Create TUI instance
         var tui = new LiveTranscriptionTUI(ModelName!, Config);
         int wordCount = 0;
-        
+
         // Initialize stream windows based on configuration
         int maxConcurrentStreams = (int)Math.Ceiling(Config.LiveWindowDurationSeconds / Config.LiveAdvanceIntervalSeconds);
         tui.AddLog($"[cyan]Config:[/] Window={Config.LiveWindowDurationSeconds}s, Advance={Config.LiveAdvanceIntervalSeconds}s");
@@ -291,7 +289,7 @@ public class Workspace(
             // Update the specific stream window with raw transcription
             tui.AddStreamText(streamId, rawText);
             tui.SetStreamProcessing(streamId, true);
-            
+
             if (featureToggles.EnableDiagnosticLogging)
             {
                 var preview = rawText.Length > 30 ? rawText.Substring(0, 30) + "..." : rawText;
@@ -304,12 +302,12 @@ public class Workspace(
         {
             // Update TUI consolidated display
             tui.AddConsolidatedText(segmentText);
-            
+
             // Track word count
             var segmentWordCount = segmentText.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Length;
             wordCount += segmentWordCount;
             tui.UpdateWordCount(wordCount);
-            
+
             // Log segment arrival
             tui.AddLog($"[green]Segment:[/] {segmentWordCount} words added");
 
@@ -328,7 +326,7 @@ public class Workspace(
                     if (Console.KeyAvailable)
                     {
                         var keyInfo = Console.ReadKey(true);
-                        if (keyInfo.Key == ConsoleKey.Escape || 
+                        if (keyInfo.Key == ConsoleKey.Escape ||
                             (keyInfo.Key == ConsoleKey.C && keyInfo.Modifiers.HasFlag(ConsoleModifiers.Control)))
                         {
                             tui.AddLog("[yellow]Exit key pressed - stopping...[/]");
@@ -387,34 +385,34 @@ public class Workspace(
                     var windowDuration = Config.LiveWindowDurationSeconds;
                     var advanceInterval = Config.LiveAdvanceIntervalSeconds;
                     var cycleTime = maxConcurrentStreams * advanceInterval; // Time for all streams to start once
-                    
+
                     while (!cts.Token.IsCancellationRequested && !transcriptionTask.IsCompleted)
                     {
                         try
                         {
                             // Calculate which streams should be active based on elapsed time
                             var elapsed = (DateTime.Now - startTime).TotalSeconds;
-                            
+
                             for (int i = 1; i <= maxConcurrentStreams; i++)
                             {
                                 // Each stream has an offset when it first starts
                                 var streamStartOffset = (i - 1) * advanceInterval;
-                                
+
                                 // Time since this stream's last start (considering repeating cycles)
                                 var timeSinceStreamStart = (elapsed - streamStartOffset) % cycleTime;
-                                
+
                                 // Handle negative modulo for times before stream first starts
                                 if (timeSinceStreamStart < 0)
                                     timeSinceStreamStart += cycleTime;
-                                
+
                                 // Stream is active if we're within windowDuration from its last start
                                 // AND the stream has actually started (elapsed >= streamStartOffset)
                                 bool hasStarted = elapsed >= streamStartOffset;
                                 bool isActive = hasStarted && (timeSinceStreamStart < windowDuration);
-                                
+
                                 tui.SetStreamProcessing(i, isActive);
                             }
-                            
+
                             ctx.UpdateTarget(tui.Render());
                             await Task.Delay(100, cts.Token);
                         }

@@ -25,21 +25,26 @@ public class TranscriptionService(
         string modelName,
         string outputDirectory,
         IAudioConverter audioConverter,
-        string tempDirectoryPath)
+        string tempDirectoryPath,
+        ProgressContext? progressContext = null)
     {
         var audioFilePath = audioFileInfo.FullName;
         var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(audioFilePath);
         var originalFileNameForLogging = Markup.Escape(audioFileInfo.Name);
 
-        if (appSettings.Verbosity >= VerbosityLevel.Normal)
+        // When progress context is provided, we're in batch mode - suppress verbose output
+        var isBatchMode = progressContext != null;
+
+        if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Normal)
         {
-            AnsiConsole.MarkupLine($"\n[bold blue]Processing: {originalFileNameForLogging}[/]");
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"Processing: [cyan]{originalFileNameForLogging}[/]");
         }
 
         if (!Directory.Exists(outputDirectory))
         {
             Directory.CreateDirectory(outputDirectory);
-            if (appSettings.Verbosity >= VerbosityLevel.Debug)
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Debug)
             {
                 AnsiConsole.MarkupLine($"[grey]   Created output directory: {Markup.Escape(outputDirectory)}[/]");
             }
@@ -50,19 +55,22 @@ public class TranscriptionService(
             try
             {
                 Directory.CreateDirectory(tempDirectoryPath);
-                if (appSettings.Verbosity >= VerbosityLevel.Debug)
+                if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Debug)
                 {
                     AnsiConsole.MarkupLine($"[grey]   Created temp directory: {Markup.Escape(tempDirectoryPath)}[/]");
                 }
             }
             catch (Exception ex)
             {
+                // Always show errors, even in batch mode
                 AnsiConsole.MarkupLine($"[red]   Error creating temp directory: {Markup.Escape(ex.Message)}[/]");
             }
         }
 
-        var outputTxtFilePath =
-            Path.Combine(outputDirectory, $"{fileNameWithoutExtension}_{modelName}.txt");
+        var outputTxtFilePath = TranscriptionPathHelper.GetTranscriptionOutputPath(
+            audioFileInfo,
+            modelName,
+            outputDirectory);
 
         // Create a workspace directory specific to this file
         var workspaceDirectory = Path.Combine(tempDirectoryPath, $"{fileNameWithoutExtension}_workspace");
@@ -80,43 +88,33 @@ public class TranscriptionService(
         }
 
         var tempWavFilePath = Path.Combine(workspaceDirectory, $"{fileNameWithoutExtension}_full_temp.wav");
-        
+
+        // If output file exists, delete it (user already gave consent during collision detection)
         if (File.Exists(outputTxtFilePath))
         {
-            AnsiConsole.MarkupLine($"[yellow]   Output file already exists: {Markup.Escape(outputTxtFilePath)}[/].");
-            var overwrite = await AnsiConsole.ConfirmAsync("   Do you want to overwrite it?", defaultValue: false);
-            if (overwrite)
-            {
-                AnsiConsole.MarkupLine($"[grey]   Deleting existing output file: {Markup.Escape(outputTxtFilePath)}[/]");
-                File.Delete(outputTxtFilePath);
-            }
-            else
-            {
-                AnsiConsole.MarkupLine($"[cyan]   Skipping processing for: {originalFileNameForLogging}[/]");
-                return;
-            }
+            File.Delete(outputTxtFilePath);
         }
-        
+
         // Path for storing the detected audio segments as JSON
         var segmentsJsonFilePath = Path.ChangeExtension(tempWavFilePath, ".segments.json");
 
         var transcriptionSuccessful = false;
         try
         {
-            if (appSettings.Verbosity >= VerbosityLevel.Normal)
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Normal)
             {
-                AnsiConsole.MarkupLine($"[cyan]   Step 1: Converting to WAV...[/]");
+                AnsiConsole.MarkupLine($"[yellow]    Step 1: Converting to WAV...[/]");
             }
-            
-            if (appSettings.Verbosity >= VerbosityLevel.Debug)
+
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Debug)
             {
                 AnsiConsole.MarkupLine($"[grey]     Source: {Markup.Escape(audioFilePath)}[/]");
                 AnsiConsole.MarkupLine($"[grey]     Target: {Markup.Escape(tempWavFilePath)}[/]");
             }
-            
+
             audioConverter.ToWav(audioFilePath, tempWavFilePath);
-            
-            if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Verbose)
             {
                 AnsiConsole.MarkupLine("[green]     Conversion complete[/]");
             }
@@ -142,14 +140,14 @@ public class TranscriptionService(
                 var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
                 var segmentsJson = JsonSerializer.Serialize(speechSegments, jsonOptions);
                 await File.WriteAllTextAsync(segmentsJsonFilePath, segmentsJson);
-                if (appSettings.Verbosity >= VerbosityLevel.Debug)
+                if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Debug)
                 {
                     AnsiConsole.MarkupLine($"[green]   Segments saved to: {Markup.Escape(segmentsJsonFilePath)}[/]");
                 }
             }
             catch (Exception ex)
             {
-                if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+                if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Verbose)
                 {
                     AnsiConsole.MarkupLine($"[yellow]   Warning: Could not save segments JSON: {Markup.Escape(ex.Message)}[/]");
                 }
@@ -157,7 +155,7 @@ public class TranscriptionService(
 
             if (!speechSegments.Any())
             {
-                if (appSettings.Verbosity >= VerbosityLevel.Normal)
+                if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Normal)
                 {
                     AnsiConsole.MarkupLine($"[yellow]   No speech detected. Creating empty transcription.[/]");
                 }
@@ -165,9 +163,11 @@ public class TranscriptionService(
                 return;
             }
 
-            if (appSettings.Verbosity >= VerbosityLevel.Normal)
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Normal)
             {
-                AnsiConsole.MarkupLine($"[cyan]   Step 3: Transcribing {speechSegments.Count} segment(s)...[/]");
+                AnsiConsole.MarkupLine($"[yellow]    Step 3: Transcribing {speechSegments.Count} segment(s)...[/]");
+                AnsiConsole.MarkupLine($"[grey]    ----------------------------------------------[/]");
+                AnsiConsole.WriteLine();
             }
             var overallTranscription = new StringBuilder();
             var overallStopwatch = Stopwatch.StartNew();
@@ -182,27 +182,27 @@ public class TranscriptionService(
                 var segmentTxtFileName = $"{baseOutputFileName}_segment-{i + 1:D4}.txt";
                 // Store individual segment transcripts in the workspace directory for easier cleanup
                 var segmentTxtFilePath = Path.Combine(workspaceDirectory, segmentTxtFileName);
-                
+
                 var firstResultInSegment = true; // To manage Write vs Append for the segment file
 
-                if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+                if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Verbose)
                 {
                     AnsiConsole.MarkupLine($"[grey]     Segment {i + 1}/{speechSegments.Count}: {segment.StartTime:g} to {segment.EndTime:g}[/]");
                 }
-                
+
                 var segmentStopwatch = Stopwatch.StartNew();
                 try
                 {
                     // Get stream for the current segment
                     await using var segmentStream = await segmentProcessor.GetSegmentStreamAsync(tempWavFilePath, segment, i, speechSegments.Count, workspaceDirectory);
 
-                    if (segmentStream == Stream.Null || segmentStream.Length == 0) 
+                    if (segmentStream == Stream.Null || segmentStream.Length == 0)
                     {
-                        if (appSettings.Verbosity >= VerbosityLevel.Normal)
+                        if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Normal)
                         {
-                            AnsiConsole.MarkupLine($"[yellow]     Warning: Segment {i+1} is empty, skipping.[/]");
+                            AnsiConsole.MarkupLine($"[yellow]     Warning: Segment {i + 1} is empty, skipping.[/]");
                         }
-                        continue; 
+                        continue;
                     }
 
                     await foreach (var result in processor.ProcessAsync(segmentStream))
@@ -210,14 +210,14 @@ public class TranscriptionService(
                         if (!string.IsNullOrWhiteSpace(result.Text))
                         {
                             var textToSaveAndPrint = result.Text.Trim();
-                            
+
                             // Append to overall transcription (trimmed)
                             overallTranscription.AppendLine(textToSaveAndPrint);
-                            
-                            // Always show transcribed text in Quiet and above
+
+                            // Always show transcribed text (this is the actual output, not verbose logging)
                             if (appSettings.Verbosity >= VerbosityLevel.Quiet)
                             {
-                                AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(textToSaveAndPrint)}[/]");
+                                AnsiConsole.WriteLine(Markup.Escape(textToSaveAndPrint));
                             }
 
                             // Write/Append this part to the segment's transcript file
@@ -238,8 +238,8 @@ public class TranscriptionService(
 
                     totalAudioProcessedDurationSeconds += segment.Duration.TotalSeconds;
                     segmentStopwatch.Stop();
-                    
-                    if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+
+                    if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Verbose)
                     {
                         AnsiConsole.MarkupLine($"[green]     Segment {i + 1} completed in {segmentStopwatch.ElapsedMilliseconds}ms[/]");
                     }
@@ -247,8 +247,9 @@ public class TranscriptionService(
                 catch (Exception ex)
                 {
                     segmentStopwatch.Stop();
+                    // Always show errors, even in batch mode
                     AnsiConsole.MarkupLine($"[red]     Error in segment {i + 1}: {Markup.Escape(ex.Message)}[/]");
-                    if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+                    if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Verbose)
                     {
                         AnsiConsole.MarkupLine($"[yellow]     Skipping segment and continuing...[/]");
                     }
@@ -256,28 +257,34 @@ public class TranscriptionService(
             }
 
             overallStopwatch.Stop();
-            
+
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Normal)
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine($"[grey]    ----------------------------------------------[/]");
+            }
+
             var audioDuration = TimeSpan.FromSeconds(totalAudioProcessedDurationSeconds);
-            var ratio = overallStopwatch.Elapsed.TotalSeconds / audioDuration.TotalSeconds;
+            var ratio = audioDuration.TotalSeconds / overallStopwatch.Elapsed.TotalSeconds;
             var audioDurationText = audioDuration.TotalSeconds.ToString("F2");
             var elapsedText = overallStopwatch.Elapsed.TotalSeconds.ToString("F2");
-            var ratioText = ratio.ToString("F2");
-            var speedColor = ratio < 1 ? "green" : "red";
+            var ratioText = ratio.ToString("F1");
 
-            if (appSettings.Verbosity >= VerbosityLevel.Normal)
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Normal)
             {
-                AnsiConsole.MarkupLine($"[green]   Completed in {elapsedText}s ([{speedColor}]{ratioText}x speed[/])[/]");
+                AnsiConsole.MarkupLine($"[green]    Completed in {elapsedText}s ({ratioText}x speed)[/]");
             }
 
             await File.WriteAllTextAsync(outputTxtFilePath, overallTranscription.ToString().Trim());
-            
-            if (appSettings.Verbosity >= VerbosityLevel.Normal)
+
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Normal)
             {
-                AnsiConsole.MarkupLine($"[green]   Saved to: {Markup.Escape(outputTxtFilePath)}[/]");
+                AnsiConsole.MarkupLine($"[green]    Saved to:[/]");
+                AnsiConsole.MarkupLine($"[grey]        {Markup.Escape(outputTxtFilePath)}[/]");
             }
-            
-            // Show full transcription text only in Verbose mode
-            if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+
+            // Show full transcription text only in Verbose mode (and not in batch mode)
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Verbose)
             {
                 AnsiConsole.WriteLine();
                 AnsiConsole.MarkupLine("[cyan]Full transcription:[/]");
@@ -287,8 +294,9 @@ public class TranscriptionService(
         }
         catch (Exception ex)
         {
+            // Always show errors, even in batch mode
             AnsiConsole.MarkupLine($"[red]   Error: {Markup.Escape(ex.Message)}[/]");
-            if (appSettings.Verbosity >= VerbosityLevel.Debug)
+            if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Debug)
             {
                 AnsiConsole.WriteException(ex);
             }
@@ -302,7 +310,7 @@ public class TranscriptionService(
                     if (Directory.Exists(workspaceDirectory))
                     {
                         Directory.Delete(workspaceDirectory, true);
-                        if (appSettings.Verbosity >= VerbosityLevel.Debug)
+                        if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Debug)
                         {
                             AnsiConsole.MarkupLine($"[grey]   Cleaned up temp files[/]");
                         }
@@ -310,7 +318,7 @@ public class TranscriptionService(
                 }
                 catch (Exception ex)
                 {
-                    if (appSettings.Verbosity >= VerbosityLevel.Verbose)
+                    if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Verbose)
                     {
                         AnsiConsole.MarkupLine($"[yellow]   Warning: Could not delete temp files: {Markup.Escape(ex.Message)}[/]");
                     }
@@ -318,7 +326,7 @@ public class TranscriptionService(
             }
             else
             {
-                if (appSettings.Verbosity >= VerbosityLevel.Normal)
+                if (!isBatchMode && appSettings.Verbosity >= VerbosityLevel.Normal)
                 {
                     AnsiConsole.MarkupLine($"[yellow]   Transcription incomplete. Temp files preserved in: {Markup.Escape(workspaceDirectory)}[/]");
                 }
@@ -335,12 +343,17 @@ public class TranscriptionService(
         string tempDirectoryPath)
     {
         var filesList = audioFiles.ToList();
-        
+
         if (appSettings.Verbosity >= VerbosityLevel.Normal)
         {
-            AnsiConsole.MarkupLine($"\n[bold blue]Starting batch transcription ({filesList.Count} file(s))[/]");
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"Transcribing {filesList.Count} audio recording(s) using [cyan]{Markup.Escape(modelName)}[/]");
+            foreach (var file in filesList)
+            {
+                AnsiConsole.MarkupLine($"    {Markup.Escape(file.Name)}");
+            }
         }
-        
+
         await AnsiConsole.Progress()
             .AutoClear(false)
             .Columns(
@@ -351,20 +364,20 @@ public class TranscriptionService(
             .StartAsync(async ctx =>
             {
                 var task = ctx.AddTask("[yellow]Processing files[/]", maxValue: filesList.Count);
-                
+
                 for (int i = 0; i < filesList.Count; i++)
                 {
                     var audioFileInfo = filesList[i];
                     task.Description = $"[yellow]({i + 1}/{filesList.Count}) {Markup.Escape(audioFileInfo.Name)}[/]";
-                    
-                    await TranscribeFileAsync(audioFileInfo, processor, modelName, outputDirectory, audioConverter, tempDirectoryPath);
-                    
+
+                    await TranscribeFileAsync(audioFileInfo, processor, modelName, outputDirectory, audioConverter, tempDirectoryPath, ctx);
+
                     task.Increment(1);
                 }
-                
+
                 task.Description = "[green]All files processed[/]";
             });
-        
+
         if (appSettings.Verbosity >= VerbosityLevel.Normal)
         {
             AnsiConsole.MarkupLine("[bold green]Batch transcription complete![/]");
@@ -392,7 +405,7 @@ public class TranscriptionService(
             .Build();
 
         AnsiConsole.MarkupLine($"[green]Whisper.net ready with language: en[/]");
-        
+
         // Create stitcher if not injected
         var transcriptionStitcher = stitcher ?? StitcherFactory.CreateStitcher(appSettings);
         AnsiConsole.MarkupLine($"[grey]Using stitching algorithm: {transcriptionStitcher.AlgorithmName}[/]");
@@ -408,7 +421,7 @@ public class TranscriptionService(
             transcriptPath = Path.Combine(
                 outputDirectory,
                 $"Live_{DateTime.Now:yyyyMMdd_HHmmss}_{modelName}.txt");
-            
+
             AnsiConsole.WriteLine();
             AnsiConsole.Write(new Rule("[yellow]Output Location[/]"));
             AnsiConsole.MarkupLine($"[cyan]Transcription will be saved to:[/]");
@@ -465,7 +478,7 @@ public class TranscriptionService(
         }
 
         var circularBuffer = new CircularAudioBuffer(windowSizeInBytes);
-        
+
         // Create file stream for real-time writing (with proper flushing for WSL/Windows filesystem)
         StreamWriter? fileWriter = null;
         if (transcriptPath != null)
@@ -479,26 +492,26 @@ public class TranscriptionService(
                 FileShare.Read,
                 bufferSize: 4096,
                 FileOptions.WriteThrough | FileOptions.Asynchronous);
-            
+
             fileWriter = new StreamWriter(fileStream, System.Text.Encoding.UTF8)
             {
                 AutoFlush = true // Ensure each write is flushed immediately
             };
-            
+
             AnsiConsole.MarkupLine("[grey]Real-time file streaming enabled - transcript will be saved as you speak[/]");
         }
-        
+
         // Create confidence tracking buffer with both display and file write callbacks
         var displayBuffer = new ConfidenceTrackingBuffer(
             (int)appSettings.LiveConfidenceThreshold,
             appSettings.LiveTranscriptionDraftWords,
-            (finalizedText) => 
+            (finalizedText) =>
             {
                 onSegmentTranscribed(finalizedText);
                 // Also write to file in real-time
                 fileWriter?.Write(finalizedText);
             });
-        
+
         var previousTranscription = string.Empty;
         int bytesProcessedSinceLastWindow = 0;
         int windowCount = 0; // Track which window/stream we're processing
@@ -506,10 +519,10 @@ public class TranscriptionService(
         Func<object?, AudioDataAvailableEventArgs, Task> audioDataHandler = async (_, args) =>
         {
             if (args.BytesRecorded <= 0) return;
-            await Task.Run(() => 
+            await Task.Run(() =>
             {
                 circularBuffer.Write(args.Buffer, 0, args.BytesRecorded);
-                
+
                 // Update VAD with new audio data
                 vad?.ProcessAudio(args.Buffer, 0, args.BytesRecorded);
             }, cancellationToken);
@@ -533,24 +546,24 @@ public class TranscriptionService(
             {
                 // Check if we should process audio:
                 // 1. Normal case: full window + advanced enough
-                bool shouldProcessNormal = circularBuffer.AvailableBytes >= windowSizeInBytes && 
+                bool shouldProcessNormal = circularBuffer.AvailableBytes >= windowSizeInBytes &&
                                           bytesProcessedSinceLastWindow >= advanceIntervalBytes;
-                
+
                 // 2. VAD case: silence detected and we have enough audio to process
                 int minVADBufferBytes = bytesPerSecond * appSettings.LiveVADMinBufferSeconds;
-                bool shouldProcessVAD = vad != null && 
-                                       vad.IsSilent && 
+                bool shouldProcessVAD = vad != null &&
+                                       vad.IsSilent &&
                                        circularBuffer.AvailableBytes >= minVADBufferBytes;
-                
+
                 if (shouldProcessNormal || shouldProcessVAD)
                 {
                     bytesProcessedSinceLastWindow = 0;
                     windowCount++;
-                    
+
                     // Calculate stream ID (circular, wrapping based on advance interval)
                     int maxConcurrentStreams = (int)Math.Ceiling(appSettings.LiveWindowDurationSeconds / appSettings.LiveAdvanceIntervalSeconds);
                     int streamId = ((windowCount - 1) % maxConcurrentStreams) + 1;
-                    
+
                     if (shouldProcessVAD)
                     {
                         AnsiConsole.MarkupLine($"[yellow][[VAD-STOP]][/] {appSettings.LiveVADSilenceDurationSeconds}s");
@@ -576,10 +589,10 @@ public class TranscriptionService(
                     {
                         if (featureToggles.EnableDiagnosticLogging)
                             AnsiConsole.MarkupLine("[yellow]DEBUG: About to call processor.ProcessAsync...[/]");
-                        
+
                         var windowTranscription = new StringBuilder();
                         var segmentReceived = false;
-                        
+
                         await foreach (var segmentData in processor.ProcessAsync(floatSamples).WithCancellation(cancellationToken))
                         {
                             segmentReceived = true;
@@ -601,33 +614,33 @@ public class TranscriptionService(
                                         "[yellow]DEBUG: Segment text is null or whitespace, not invoking callback.[/]");
                             }
                         }
-                        
+
                         if (segmentReceived && windowTranscription.Length > 0)
                         {
                             var currentText = windowTranscription.ToString().Trim();
-                            
+
                             // Notify per-window transcription (raw, before stitching)
                             if (onWindowTranscribed != null && !string.IsNullOrWhiteSpace(currentText))
                             {
                                 onWindowTranscribed(streamId, currentText);
                             }
-                            
+
                             var stitchedText = transcriptionStitcher.StitchSegments(previousTranscription, currentText);
-                            
+
                             if (!string.IsNullOrWhiteSpace(stitchedText))
                             {
                                 displayBuffer.AddStitchedText(stitchedText);
                             }
-                            
+
                             previousTranscription = currentText;
                         }
-                        
+
                         // Reset VAD after processing silence-triggered segment
                         if (shouldProcessVAD && vad != null)
                         {
                             vad.Reset();
                         }
-                        
+
                         if (!segmentReceived && featureToggles.EnableDiagnosticLogging)
                         {
                             AnsiConsole.MarkupLine(
@@ -637,7 +650,7 @@ public class TranscriptionService(
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
                         AnsiConsole.MarkupLine("[yellow]Transcription processing canceled.[/]");
-                        break; 
+                        break;
                     }
                     catch (Exception ex)
                     {
@@ -646,36 +659,36 @@ public class TranscriptionService(
                 }
                 try
                 {
-                    await Task.Delay(100, cancellationToken); 
+                    await Task.Delay(100, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
                     AnsiConsole.MarkupLine("[yellow]Task.Delay canceled during live transcription loop.[/]");
-                    break; 
+                    break;
                 }
             }
 
             if (cancellationToken.IsCancellationRequested)
             {
                 AnsiConsole.MarkupLine("[yellow]Live transcription cancellation requested.[/]");
-                
+
                 // Process any remaining audio in the buffer before exiting
                 if (circularBuffer.AvailableBytes >= bytesPerSecond * 2) // At least 2 seconds of audio
                 {
                     AnsiConsole.MarkupLine("[cyan]Processing remaining audio in buffer...[/]");
-                    
+
                     try
                     {
                         var remainingBytes = circularBuffer.ReadAll();
                         var numSamples = remainingBytes.Length / bytesPerSample;
                         var floatSamples = new float[numSamples];
-                        
+
                         for (var k = 0; k < numSamples; k++)
                         {
                             var pcmSample = BitConverter.ToInt16(remainingBytes, k * bytesPerSample);
                             floatSamples[k] = pcmSample / 32768.0f;
                         }
-                        
+
                         var finalTranscription = new StringBuilder();
                         await foreach (var segmentData in processor.ProcessAsync(floatSamples))
                         {
@@ -685,18 +698,18 @@ public class TranscriptionService(
                                 finalTranscription.Append(" ");
                             }
                         }
-                        
+
                         if (finalTranscription.Length > 0)
                         {
                             var currentText = finalTranscription.ToString().Trim();
                             var stitchedText = transcriptionStitcher.StitchSegments(previousTranscription, currentText);
-                            
+
                             if (!string.IsNullOrWhiteSpace(stitchedText))
                             {
                                 displayBuffer.AddStitchedText(stitchedText);
                             }
                         }
-                        
+
                         AnsiConsole.MarkupLine("[green]Remaining audio processed.[/]");
                     }
                     catch (Exception ex)
@@ -743,16 +756,16 @@ public class TranscriptionService(
             AnsiConsole.MarkupLine("[green]Audio capture processing finished in TranscriptionService.[/]");
             AnsiConsole.WriteLine(); // Ensure a newline before final summary
             AnsiConsole.MarkupLine("[bold green]Live Transcription Complete (within TranscriptionService):[/]");
-            
+
             var stats = displayBuffer.GetStatistics();
             AnsiConsole.MarkupLine($"[grey]Total words finalized: {stats.WordsFinalized}[/]");
-            
+
             if (!string.IsNullOrWhiteSpace(finalTranscript))
             {
                 AnsiConsole.WriteLine();
                 AnsiConsole.WriteLine(finalTranscript);
             }
-            
+
             if (transcriptPath != null)
             {
                 AnsiConsole.MarkupLine($"[green]Full transcript saved to: {Markup.Escape(transcriptPath)}[/]");
@@ -807,7 +820,7 @@ public class TranscriptionService(
             {
                 string prevWord = previousWords[previousWords.Length - overlap + i];
                 string newWord = newWords[i];
-                
+
                 // Case-insensitive comparison for better matching
                 if (!prevWord.Equals(newWord, StringComparison.OrdinalIgnoreCase))
                 {

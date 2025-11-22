@@ -116,7 +116,7 @@ public class SettingsManager
                Directory.Exists(_appSettings.LiveTranscriptionsDirectory);
     }
 
-    public async Task ShowConfigurationMenuAsync()
+    public async Task ShowConfigurationMenuAsync(Func<Task>? onRefreshModelsCache = null)
     {
         while (true)
         {
@@ -138,20 +138,29 @@ public class SettingsManager
             AnsiConsole.MarkupLine($"[dim]Configuration File: {_configPath}[/]");
             AnsiConsole.WriteLine();
 
+            var choices = new List<string>
+            {
+                "🚀 Quick Setup (Set Base Directory)",
+                "------------------------",
+                "📁 Set Input Directory",
+                "📂 Set Output Directory",
+                "🧠 Set Models Directory",
+                "🎙️ Set Live Transcriptions Directory",
+                "💾 Set Temporary Directory",
+                "🗑️ Clear Configuration (Reset)"
+            };
+
+            if (onRefreshModelsCache != null)
+            {
+                choices.Add("🔄 Refresh Models Cache");
+            }
+
+            choices.Add("Go Back");
+
             var choice = await AnsiConsole.PromptAsync(
                 new SelectionPrompt<string>()
                     .Title("Select an option:")
-                    .AddChoices(
-                        "🚀 Quick Setup (Set Base Directory)",
-                        "------------------------",
-                        "📁 Set Input Directory",
-                        "📂 Set Output Directory",
-                        "🧠 Set Models Directory",
-                        "🎙️ Set Live Transcriptions Directory",
-                        "💾 Set Temporary Directory",
-                        "🗑️ Clear Configuration (Reset)",
-                        "Go Back"
-                    ));
+                    .AddChoices(choices));
 
             if (choice == "Go Back") break;
 
@@ -225,6 +234,11 @@ public class SettingsManager
                     // Force loop to refresh display immediately with cleared values
                     continue;
                 }
+            }
+            else if (choice.Contains("Refresh Models Cache") && onRefreshModelsCache != null)
+            {
+                await onRefreshModelsCache.Invoke();
+                await Task.Delay(1000);
             }
 
             await SaveSettingsAsync();

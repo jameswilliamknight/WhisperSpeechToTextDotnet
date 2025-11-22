@@ -67,6 +67,40 @@ public class MenuEngine
         return itemsChosen;
     }
 
+    /// <summary>
+    /// Prompts user to select multiple items with custom default selections
+    /// </summary>
+    public async Task<List<T>> SelectMultipleAsync<T>(
+        IEnumerable<T> items,
+        string itemTypeDescription,
+        Func<T, string> displayConverter,
+        IEnumerable<T>? defaultSelections = null) where T : class
+    {
+        AnsiConsole.MarkupLine($"[cyan]Select the {itemTypeDescription.ToLower()}(s) you want to process:[/]");
+
+        var prompt = new MultiSelectionPrompt<T>()
+            .Title("Use [blue]Spacebar[/] to toggle selection, [green]Enter[/] to confirm.")
+            .PageSize(10)
+            .MoreChoicesText("[grey](Move up and down to reveal more items)[/]")
+            .InstructionsText(
+                "[grey](Press [blue]<space>[/] to toggle an item, " +
+                "[green]<enter>[/] to accept or go back if none selected)[/]")
+            .UseConverter(displayConverter)
+            .AddChoices(items.ToList());
+
+        // Add default selections if provided
+        if (defaultSelections != null)
+        {
+            foreach (var item in defaultSelections)
+            {
+                prompt.Select(item);
+            }
+        }
+
+        var itemsChosen = await AnsiConsole.PromptAsync(prompt);
+        return itemsChosen;
+    }
+
     public async Task<T?> PromptChooseSingleFile<T>(
         IEnumerable<T> items,
         string title,
