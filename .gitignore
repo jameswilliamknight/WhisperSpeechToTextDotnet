@@ -42,3 +42,8 @@ bld/
 msbuild.log
 msbuild.err
 msbuild.wrn
+
+# Whisper project specific ignores
+WhisperPrototype/Models/
+WhisperPrototype/Recordings/
+WhisperPrototype/Transcriptions/
