@@ -1,0 +1,44 @@
+@import "tailwindcss";
+@source "../../";
+
+@layer base {
+  body {
+    background: var(--fb-canvas);
+    color: var(--fb-foreground);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+
+  /* Match Freebore's slim, rounded scrollbars everywhere, including horizontal
+     timelines. Native thumbs retain dragging, track clicks and wheel support. */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-fb-primary);
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--color-fb-primary) 75%, white);
+  }
+
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  /* Standard properties override WebKit thumb styling in Chromium, so use
+     them only as a fallback where the pseudo-elements are unsupported. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-fb-primary) transparent;
+    }
+  }
+}

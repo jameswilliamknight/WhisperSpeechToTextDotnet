@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+BUN_BIN="$(command -v bun || true)"
+if [[ -z "$BUN_BIN" && -x "$HOME/.bun/bin/bun" ]]; then BUN_BIN="$HOME/.bun/bin/bun"; fi
+if [[ -z "$BUN_BIN" ]]; then
+  echo "error: Bun is required; run the repository's bin/install first." >&2
+  exit 1
+fi
+exec "$BUN_BIN" "$SCRIPT_DIR/../apps/transcription-studio/tool/launch.ts" "$@"

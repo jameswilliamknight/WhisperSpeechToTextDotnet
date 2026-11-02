@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Adapted from Freebore's bin/install: a checkout-owned command on the shell PATH.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+APP_DIR="$(cd "$SCRIPT_DIR/../apps/transcription-studio" && pwd)"
+MARKER="# transcribe: added by bin/install"
+RC="$HOME/.zshrc"
+
+if [[ $# -gt 1 || ( $# -eq 1 && "$1" != "--skip-deps" ) ]]; then
+  echo "Usage: bin/install [--skip-deps]" >&2
+  exit 2
+fi
+chmod +x "$SCRIPT_DIR/install" "$SCRIPT_DIR/transcribe"
+BUN_BIN="$(command -v bun || true)"
+if [[ -z "$BUN_BIN" && -x "$HOME/.bun/bin/bun" ]]; then BUN_BIN="$HOME/.bun/bin/bun"; fi
+if [[ -z "$BUN_BIN" ]]; then
+  echo "error: Bun is required. Install it from https://bun.sh first." >&2
+  exit 1
+fi
+if [[ "${1:-}" != "--skip-deps" ]]; then
+  echo "› installing Transcribe dependencies"
+  (cd "$APP_DIR" && "$BUN_BIN" install --frozen-lockfile)
+fi
+
+# Append only; never source the user's config or rewrite their existing entries.
+printf -v PATH_LINE 'export PATH=%q:"$PATH"' "$SCRIPT_DIR"
+if [[ -f "$RC" ]] && grep -Fxq "$PATH_LINE" "$RC"; then
+  echo "› transcribe PATH entry already present in $RC"
+else
+  if [[ -f "$RC" ]]; then cp -p "$RC" "$RC.transcribe-backup-$(date +%Y%m%d%H%M%S)-$$"; fi
+  printf '\n%s\n%s\n' "$MARKER" "$PATH_LINE" >> "$RC"
+  echo "› added transcribe to $RC (existing contents preserved)"
+fi
+echo '✓ Run `transcribe` in a new terminal, or run `source ~/.zshrc` first.'

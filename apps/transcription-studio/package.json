@@ -1,0 +1,44 @@
+{
+  "name": "transcription-studio",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "dev": "bun --bun nuxt dev --host localhost --port 42076",
+    "build": "STUDIO_BUILD_DIR=node_modules/.cache/studio-production bun --bun nuxt build",
+    "preview": "HOST=localhost PORT=42076 bun .output/server/index.mjs",
+    "prepare": "bun --bun nuxt prepare",
+    "typecheck": "bun --bun nuxt typecheck",
+    "lint": "eslint .",
+    "test": "bun test test/unit",
+    "test:e2e": "playwright test",
+    "test:production": "bun tool/verify-production.ts",
+    "bench": "bun tool/bench.ts",
+    "configure": "bun tool/configure-adapters.ts"
+  },
+  "dependencies": {
+    "@formkit/auto-animate": "^0.10.0",
+    "@pinia/nuxt": "^0.11.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "lucide-vue-next": "^1.0.0",
+    "nuxt": "^4.5.2",
+    "pinia": "^3.0.4",
+    "tailwind-merge": "^3.7.0",
+    "vue": "^3.5.42",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^1.17.0",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/bun": "^1.3.0",
+    "@types/node": "^25.9.6",
+    "eslint": "^10.10.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "6.0.3",
+    "vite": "^8.3.0",
+    "vue-tsc": "^3.3.11"
+  }
+}

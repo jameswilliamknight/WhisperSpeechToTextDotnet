@@ -1,10 +1,42 @@
 ## About
 
-Experimental project for using .NET to convert speech to text, and writing modular code to help reuse.
+Local Whisper transcription and speaker diarisation, with a Nuxt/Bun desktop UI alongside the original .NET prototype and preserved experiments.
+
+```sh
+bash bin/install
+# In a new terminal, from any directory:
+transcribe
+```
+
+Drop or choose audio, transcribe, and copy the result. Configure source, working and transcript-output directories in Settings. Settings and app state persist through Pinia and server-side SQLite. See [Transcription Studio](./apps/transcription-studio/README.md) for native model setup and privacy details.
 
 I wanted to build it so I could one day add something to my Raspberry Pi `raspotify` devices, and add smart voice assistant capabilities. That would then entail an client-server architecture, and some kind of deployment model. Alternatively or additionally this project will acquire a web server to provide an easy to use React web interface.
 
 This project is open source to expand my portfolio of work. I didn't know what kind of license to add, so it's probably going to change.
+
+## Repository layout
+
+| Directory | Purpose |
+| --- | --- |
+| [apps/transcription-studio](./apps/transcription-studio/) | Whisper transcription UI, persistent settings/history, text exports and preserved benchmark harness |
+| [apps/whisper-dotnet](./apps/whisper-dotnet/) | Existing .NET solution, unchanged Whisper.net/CUDA app and setup scripts |
+| [apps/fluidaudio-experiment](./apps/fluidaudio-experiment/) | Apple Neural Engine Parakeet Ultra + offline diarisation worker |
+| [apps/nemo-experiment](./apps/nemo-experiment/) | Native Metal Parakeet + Nemotron 3 Diarization worker |
+| [apps/whisper-experiment](./apps/whisper-experiment/) | Native Metal Whisper large-v3-turbo reference + Nemotron diarisation |
+| [apps/whisperx-experiment](./apps/whisperx-experiment/) | Windows/NVIDIA transcription and diarisation experiment scaffold |
+| [apps/benchmarks](./apps/benchmarks/) | Shared comparison protocol; execution/results live in transcription-studio |
+
+Start with [Transcription Studio](./apps/transcription-studio/README.md) for Apple Silicon transcription; it requires no .NET installation. Experiments remain isolated from the existing app and outside the default UI. Windows/CUDA Studio adapters are deferred. Existing design documents remain in `docs/` and `tasks/`.
+
+Build the existing app from its solution directory (requires the SDK pinned in its `global.json`):
+
+```sh
+cd apps/whisper-dotnet
+dotnet build WhisperSpeechToTextDotnet.sln
+dotnet run --project WhisperPrototype/WhisperPrototype.csproj
+```
+
+The following setup notes describe the existing .NET app. Run its helper scripts from `apps/whisper-dotnet/`.
 
 ## Setup Guide
 

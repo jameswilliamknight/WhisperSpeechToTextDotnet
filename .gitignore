@@ -37,6 +37,10 @@ x86/
 build/
 bld/
 [Bb]in/
+!/bin/
+!/bin/install
+!/bin/transcribe
+!/bin/README.md
 [Oo]bj/
 [Oo]ut/
 msbuild.log
@@ -44,6 +48,25 @@ msbuild.err
 msbuild.wrn
 
 # Whisper project specific ignores
-WhisperPrototype/Models/
-WhisperPrototype/Recordings/
-WhisperPrototype/Transcriptions/
+apps/whisper-dotnet/WhisperPrototype/Models/
+apps/whisper-dotnet/WhisperPrototype/Recordings/
+apps/whisper-dotnet/WhisperPrototype/Transcriptions/
+
+# Experiment dependencies, model downloads, private audio and benchmark output
+.build/
+.swiftpm/
+.venv/
+# Model downloads live at each app root; do not hide C# Framework/Models source.
+/apps/*/models/
+/apps/**/recordings/
+/apps/**/results/
+
+# Private local state for apps and experiments (audio copies, jobs, transcripts, databases)
+/apps/**/.local/
+node_modules/
+.nuxt/
+.output/
+.data/
+test-results/
+playwright-report/
+.env
