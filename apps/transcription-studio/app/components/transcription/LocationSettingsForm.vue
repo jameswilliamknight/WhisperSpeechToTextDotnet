@@ -6,6 +6,7 @@ import UiNotice from '#layers/freebore-ui/app/components/ui/UiNotice.vue'
 import type { LocationSettings } from '../../../shared/workspace'
 import { normaliseDirectoryPath } from '#shared/normaliseDirectoryPath'
 import { useWorkspaceStore } from '../../stores/workspace'
+import CopySettings from './CopySettings.vue'
 
 const workspace = useWorkspaceStore()
 const form = reactive<LocationSettings>({ sourceDirectory: '', workingDirectory: '', outputDirectory: '' })
@@ -48,5 +49,6 @@ async function save() {
       <UiButton type="submit" :disabled="workspace.busy || !!workspace.snapshot.activeJobId">{{ workspace.busy ? 'Saving…' : 'Save settings' }}</UiButton>
     </form>
     <UiButton v-else-if="!workspace.loading" @click="workspace.hydrate()">Retry loading settings</UiButton>
+    <CopySettings />
   </section>
 </template>

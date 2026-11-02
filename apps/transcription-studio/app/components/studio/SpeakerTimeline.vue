@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, shallowRef, useTemplateRef } from 'vue'
+import { computed, onMounted, useTemplateRef, watch } from 'vue'
+import { useTimelineViewStore } from '../../stores/timelineView'
 import { useAutoAnimate } from '@formkit/auto-animate/vue'
 import { ChevronsLeftRight, ChevronsRightLeft, Pause, Play } from 'lucide-vue-next'
 import UiIconButton from '#layers/freebore-ui/app/components/ui/UiIconButton.vue'
@@ -13,6 +14,7 @@ import SpeakerName from '../speakers/SpeakerName.vue'
 import { useTimelineFollow } from '../../composables/useTimelineFollow'
 
 const props = defineProps<{
+  identity: string
   turns: readonly Readonly<SpeakerTurn>[]
   segments?: readonly Readonly<TranscriptSegment>[]
   duration?: number
@@ -22,7 +24,10 @@ const props = defineProps<{
   audioAvailable?: boolean
 }>()
 const emit = defineEmits<{ seek: [seconds: number]; renameSpeaker: [speakerId: string]; togglePlayback: [] }>()
-const expanded = shallowRef(false)
+const timelineView = useTimelineViewStore()
+const expanded = computed(() => timelineView.expanded)
+onMounted(() => timelineView.select(props.identity))
+watch(() => props.identity, identity => timelineView.select(identity))
 const [animationParent] = useAutoAnimate<HTMLElement>({ duration: 300 })
 const speakers = computed(() => [...new Set(props.turns.map(turn => turn.speaker))])
 const labels = computed(() => speakerLabels(speakers.value, props.speakerNames))
@@ -62,7 +67,7 @@ const lanes = computed(() => speakers.value.map((speaker, index) => ({
         <span aria-label="Playback time" class="font-mono text-xs tabular-nums text-fb-muted">{{ timestamp(position) }} / {{ timestamp(length) }}</span>
       </div>
       <div class="ml-auto flex min-w-0 flex-wrap items-center gap-3"><slot name="actions" />
-      <UiIconButton :icon="expanded ? ChevronsRightLeft : ChevronsLeftRight" variant="tertiary" :aria-label="expanded ? 'Fit timeline to width' : 'Expand timeline to time scale'" :title="expanded ? 'Fit timeline to width' : 'Expand timeline (12 pixels per second)'" :aria-pressed="expanded" @click="expanded = !expanded" />
+      <UiIconButton :icon="expanded ? ChevronsRightLeft : ChevronsLeftRight" variant="tertiary" :aria-label="expanded ? 'Fit timeline to width' : 'Expand timeline to time scale'" :title="expanded ? 'Fit timeline to width' : 'Expand timeline (12 pixels per second)'" :aria-pressed="expanded" @click="timelineView.toggle()" />
       </div>
     </div>
     <slot name="feedback" />
@@ -73,16 +78,16 @@ const lanes = computed(() => speakers.value.map((speaker, index) => ({
           <SpeakerName :name="labels.get(lane.speaker) ?? `Speaker ${lane.speakerNumber}`" class="w-full text-xs" @edit="emit('renameSpeaker', lane.speaker)" />
         </div>
       </div>
-    <div ref="animationParent" class="min-w-0 overflow-x-auto pb-1" aria-label="Timeline viewport">
+    <div ref="animationParent" class="-mx-2 min-w-0 overflow-x-auto px-2 pb-1" aria-label="Timeline viewport">
       <span :key="String(expanded)" aria-hidden="true" class="absolute size-0 overflow-hidden" />
       <div ref="canvas" class="relative" data-testid="timeline-canvas" :style="canvasStyle">
         <div class="relative h-4">
           <input type="range" min="0" :max="length" step="0.01" :value="position" :disabled="!audioAvailable" aria-label="Audio position" :aria-valuetext="`${timestamp(position)} of ${timestamp(length)}`" class="peer absolute inset-0 z-10 m-0 h-4 w-full cursor-pointer opacity-0" @pointerdown="startDrag" @lostpointercapture="finishDrag" @input="emit('seek', Number(($event.target as HTMLInputElement).value))">
-          <span aria-hidden="true" class="pointer-events-none absolute top-0 size-4 -translate-x-1/2 rounded-full bg-fb-primary" :style="{ left: progress }" />
+          <span data-testid="timeline-position-marker" aria-hidden="true" class="pointer-events-none absolute top-0 z-20 size-4 -translate-x-1/2 rounded-full bg-fb-primary" :style="{ left: progress }" />
         </div>
         <div class="relative space-y-1.5">
           <div v-for="lane in lanes" :key="lane.speaker" role="group" :style="speakerColor(lane.speaker, speakers)" :aria-label="`${labels.get(lane.speaker) ?? `Speaker ${lane.speakerNumber}`} timeline`">
-            <div class="relative h-5 overflow-hidden rounded bg-fb-surface-muted/50" @click="seekAt">
+            <div class="relative h-5 overflow-hidden rounded bg-fb-surface-muted/50 [mask-image:linear-gradient(to_right,transparent,black_8px,black_calc(100%_-_8px),transparent)]" @click="seekAt">
               <UiTooltip v-for="turn in lane.turns" :key="turn.index" class="absolute inset-y-0 min-w-px" :style="{ left: turn.left, width: turn.width }" :title="`${labels.get(lane.speaker) ?? `Speaker ${lane.speakerNumber}`} · ${timestamp(turn.start)}–${timestamp(turn.end)}`" :description="turn.text || 'No transcript text available for this segment.'" :show-delay="250">
                 <button type="button" class="h-full w-full cursor-pointer rounded border border-(--speaker-border) bg-(--speaker-fill) hover:bg-(--speaker-border) focus-visible:outline-2 focus-visible:outline-(--speaker-color)" :aria-label="`Seek to ${labels.get(lane.speaker) ?? `Speaker ${lane.speakerNumber}`}, ${timestamp(turn.start)} to ${timestamp(turn.end)}`" @click.stop="emit('seek', turn.start)" />
               </UiTooltip>

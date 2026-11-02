@@ -32,9 +32,24 @@ for (const surface of ['workspace', 'benchmarks'] as const) {
     await expect(clock).toHaveText('0:00 / 3:00')
     await expect(position).toHaveValue('0')
     await expect(playhead).toHaveCSS('left', '0px')
+    const marker = page.getByTestId('timeline-position-marker')
+    const markerFits = () => marker.evaluate(element => {
+      const bounds = element.getBoundingClientRect()
+      const viewport = element.closest('[aria-label="Timeline viewport"]')!.getBoundingClientRect()
+      return bounds.left >= viewport.left && bounds.right <= viewport.right
+    })
+    expect(await markerFits()).toBe(true)
+    await position.press('End')
+    await expect.poll(markerFits).toBe(true)
+    await position.press('Home')
+    await expect(position).toHaveValue('0')
     const initialX = await playhead.evaluate(element => element.getBoundingClientRect().x)
+    const pageHeight = await page.evaluate(() => document.documentElement.scrollHeight)
     await page.getByRole('button', { name: 'Seek to Speaker 1, 0:00 to 0:08', exact: true }).hover()
     await expect(page.locator('.v-popper__popper').getByText('Synthetic opening.', { exact: true })).toBeVisible()
+    const tooltip = page.locator('.v-popper__popper--shown')
+    await expect.poll(() => tooltip.evaluate(element => element.getBoundingClientRect().bottom <= innerHeight)).toBe(true)
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(pageHeight)
 
     if (surface === 'workspace') {
       const expand = page.getByRole('button', { name: 'Expand timeline to time scale', exact: true })

@@ -5,6 +5,7 @@ import UiIconButton from '#layers/freebore-ui/app/components/ui/UiIconButton.vue
 import { RefreshCw } from 'lucide-vue-next'
 import UiNotice from '#layers/freebore-ui/app/components/ui/UiNotice.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { useTimelineViewStore } from '../../stores/timelineView'
 import AudioInput from './AudioInput.vue'
 import SourceFiles from './SourceFiles.vue'
 import JobHistory from './JobHistory.vue'
@@ -14,6 +15,7 @@ import WorkspaceLibraryTabs from './WorkspaceLibraryTabs.vue'
 import { useSourceDirectoryWatch } from '../../composables/useSourceDirectoryWatch'
 
 const workspace = useWorkspaceStore()
+const timelineView = useTimelineViewStore()
 useSourceDirectoryWatch()
 // Browser File objects belong to this input session, not serializable application state.
 const file = shallowRef<File | null>(null)
@@ -21,8 +23,8 @@ const sourceName = shallowRef('')
 const disabled = computed(() => workspace.busy || !!workspace.snapshot?.activeJobId)
 const canStart = computed(() => !disabled.value && !!workspace.snapshot?.engine.available && !!(file.value || sourceName.value))
 onMounted(() => { void workspace.hydrate() })
-function selectFile(value: File | null) { file.value = value; sourceName.value = '' }
-function selectSource(value: string) { sourceName.value = value; file.value = null }
+function selectFile(value: File | null) { file.value = value; sourceName.value = ''; timelineView.reset() }
+function selectSource(value: string) { sourceName.value = value; file.value = null; timelineView.reset() }
 async function start() {
   const source = file.value ?? sourceName.value
   if (source && await workspace.transcribe(source)) { file.value = null; sourceName.value = '' }
@@ -37,7 +39,7 @@ async function start() {
     <template v-if="workspace.snapshot">
       <UiNotice v-if="!workspace.snapshot.engine.available" tone="warning" title="Whisper unavailable">{{ workspace.snapshot.engine.reason || 'The local Whisper engine is not configured.' }}</UiNotice>
       <JobStatus :job="workspace.activeJob" :uploading="workspace.uploading" @cancel="workspace.cancel()" />
-      <TranscriptPanel :job="workspace.detail" :loading="workspace.detailLoading" :with-speakers="workspace.preferences.copyWithSpeakers" @copy-preference="workspace.savePreferences({ copyWithSpeakers: $event })" @rename-speaker="workspace.renameSpeaker">
+      <TranscriptPanel :job="workspace.detail" :loading="workspace.detailLoading" :with-speakers="workspace.preferences.copyWithSpeakers" @rename-speaker="workspace.renameSpeaker">
         <template #sidebar>
         <div class="flex min-h-0 flex-1 flex-col">
           <WorkspaceLibraryTabs :initial-tab="workspace.snapshot.jobs.length ? 'recent' : 'library'">

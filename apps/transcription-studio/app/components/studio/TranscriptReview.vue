@@ -52,7 +52,7 @@ function saveSpeakerName(name: string) {
     </div>
     <template v-else>
       <audio v-if="audioSource" ref="audio" hidden preload="metadata" :src="audioSource" />
-      <SpeakerTimeline :turns="run.result.turns" :segments="run.result.segments" :duration="duration || run.durationSeconds" :speaker-names="run.speakerNames" :current-time="currentTime" :playing="playing" :audio-available="playbackAvailable" @toggle-playback="togglePlayback" @seek="seek" @rename-speaker="editSpeaker">
+      <SpeakerTimeline :identity="`run:${run.id}`" :turns="run.result.turns" :segments="run.result.segments" :duration="duration || run.durationSeconds" :speaker-names="run.speakerNames" :current-time="currentTime" :playing="playing" :audio-available="playbackAvailable" @toggle-playback="togglePlayback" @seek="seek" @rename-speaker="editSpeaker">
         <template #heading><h2 id="review-heading" class="text-base font-medium">Transcript &amp; speakers</h2></template>
         <template #actions><span class="text-xs text-fb-muted">{{ passages.length }} passages</span></template>
         <template #feedback>
