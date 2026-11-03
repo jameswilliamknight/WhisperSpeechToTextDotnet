@@ -102,10 +102,10 @@ async function copy() {
         <ol v-if="passages.length" ref="passageList" aria-label="Transcript passages" tabindex="0" class="min-h-[20rem] flex-1 divide-y divide-fb-border overflow-y-auto overscroll-contain" @wheel.passive="transcriptFollow.onWheel" @pointerdown="transcriptFollow.onPointerDown" @keydown="transcriptFollow.onKeydown">
           <li v-for="(passage, index) in passages" :key="index" :data-passage-index="index" :aria-current="index === transcriptFollow.activeIndex.value ? 'true' : undefined" :style="speakerColor(passage.speaker, speakers)" class="grid grid-cols-[8rem_1fr] gap-4 px-5 py-4 transition-colors motion-reduce:transition-none" :class="{ 'bg-fb-primary-soft/20': index === transcriptFollow.activeIndex.value }">
             <div>
-              <span class="group/timestamp flex items-center gap-1">
+              <span class="group/timestamp flex items-center gap-2.5">
                 <UiButton variant="naked" size="sm" class="px-0 font-mono text-xs" :disabled="!audioAvailable" :aria-label="`Seek to ${timestamp(passage.start)}`" @click="seekAndFollow(passage.start)">{{ timestamp(passage.start) }}</UiButton>
                 <UiTooltip :title="`Jump to ${timestamp(passage.start)} in recording`">
-                  <UiIconButton :icon="LocateFixed" variant="tertiary" size="xs" class="-my-1 h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover/timestamp:opacity-100 group-focus-within/timestamp:opacity-100 focus-visible:opacity-100" :disabled="!audioAvailable" :aria-label="`Jump to ${timestamp(passage.start)} in recording`" @click="jumpToPassage($event, passage.start)" />
+                  <UiIconButton :icon="LocateFixed" variant="naked" size="xs" class="-my-1 h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover/timestamp:opacity-100" :disabled="!audioAvailable" :aria-label="`Jump to ${timestamp(passage.start)} in recording`" @click="jumpToPassage($event, passage.start)" />
                 </UiTooltip>
               </span>
               <SpeakerName v-if="passage.speaker" class="mt-1 text-xs" :name="labels.get(passage.speaker) ?? passage.speaker" @edit="editSpeaker(passage.speaker)" />
