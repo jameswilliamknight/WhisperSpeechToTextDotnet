@@ -43,9 +43,10 @@ async function main() {
     const diarisationSeconds = (performance.now() - diarStart) / 1000;
     const segments = align(asr.segments, turns);
     // Static adapter caveats live here rather than in per-run output: speakers are
-    // assigned by maximum positive overlap to whole Whisper segments (not word-level
-    // alignment; first turn wins ties), segments may span speaker changes with native
-    // overlapping turns retained, stage times include startup/model loading, and Metal
+    // assigned by maximum positive overlap to whole Whisper segments (first turn
+    // wins ties). Optional word timings enrich display only; segments may still span
+    // speaker changes. Native overlapping turns are retained, stage times include
+    // startup/model loading, and Metal
     // may fall back to CPU because this adapter does not enforce GPU usage.
     const warnings: string[] = [];
     if (segments.some((s) => !s.speaker)) warnings.push("Some ASR segments have no overlapping speaker turn and remain unlabelled.");

@@ -49,7 +49,7 @@ test('workspace: seeking while paused reveals the active passage via timeline, s
   await expect.poll(() => geometry(list).then(value => value.error)).toBeLessThan(2)
   await expect.poll(() => audio.evaluate(element => (element as HTMLAudioElement).currentTime)).toBe(80)
   expect(await audio.evaluate(element => (element as HTMLAudioElement).paused)).toBe(true)
-  await expect(page.getByRole('button', { name: 'Resume following', exact: true })).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Follow playback', exact: true })).toBeHidden()
   const jump = list.getByRole('button', { name: 'Jump to 1:20 in recording', exact: true })
   await page.getByRole('button', { name: 'Play audio', exact: true }).hover()
   await expect(jump).toHaveCSS('opacity', '0')
@@ -72,7 +72,7 @@ test('workspace: seeking while paused reveals the active passage via timeline, s
   expect(errors).toEqual([])
 })
 
-test('workspace: wheel browsing leaves playback alone until Resume following recentres it', async ({ page }) => {
+test('workspace: wheel browsing leaves playback alone until Follow playback recentres it', async ({ page }) => {
   const unexpected = await mockReview(page, 'workspace', longTranscript)
   const list = page.getByRole('list', { name: 'Transcript passages' })
   const audio = page.locator('audio')
@@ -84,7 +84,7 @@ test('workspace: wheel browsing leaves playback alone until Resume following rec
   const before = await mediaTime()
   await list.hover()
   await page.mouse.wheel(0, -10000)
-  const resume = page.getByRole('button', { name: 'Resume following', exact: true })
+  const resume = page.getByRole('button', { name: 'Follow playback', exact: true })
   await expect(resume).toBeVisible()
   await expect.poll(() => geometry(list).then(value => value.scroll)).toBe(0)
   // Cross a passage boundary: following must stay suspended even as aria-current
@@ -111,7 +111,7 @@ test('workspace: keyboard and scrollbar browsing pause follow; an explicit seek 
   const unexpected = await mockReview(page, 'workspace', longTranscript)
   const list = page.getByRole('list', { name: 'Transcript passages' })
   const audio = page.locator('audio')
-  const resume = page.getByRole('button', { name: 'Resume following', exact: true })
+  const resume = page.getByRole('button', { name: 'Follow playback', exact: true })
   await list.focus()
   await list.press('End')
   await expect(resume).toBeVisible()
@@ -133,5 +133,36 @@ test('workspace: keyboard and scrollbar browsing pause follow; an explicit seek 
   await expect(list.locator('[data-passage-index="10"]')).toHaveAttribute('aria-current', 'true')
   await expect.poll(() => geometry(list).then(value => value.error)).toBeLessThan(2)
   expect(await audio.evaluate(element => (element as HTMLAudioElement).currentTime)).toBe(40)
+  expect(unexpected).toEqual([])
+})
+
+test('workspace: follows fine-grained phrases inside one tall coherent passage', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const phrases = Array.from({ length: 40 }, (_, index) => `Phrase ${index + 1} contains several synthetic words to create a tall coherent passage.`)
+  const text = phrases.join(' ')
+  let from = 0
+  const words = phrases.map((phrase, index) => {
+    const word = { from, to: from + phrase.length, start: index * 4, end: index * 4 + 3 }
+    from += phrase.length + 1
+    return word
+  })
+  const source = { start: 0, end: 160, text }
+  const review: WorkerResult = {
+    ...result,
+    segments: [{ ...source, speaker: 'a', alignment: { version: 1, source, words } }],
+    turns: phrases.map((_, index) => ({ start: index * 4, end: (index + 1) * 4, speaker: 'a' })),
+  }
+  const unexpected = await mockReview(page, 'workspace', review)
+  const list = page.getByRole('list', { name: 'Transcript passages' })
+  await expect(list.locator('li')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Seek to Speaker 1, 2:00 to 2:04', exact: true }).click()
+  const highlight = list.locator('[data-playback-highlight]')
+  await expect(highlight).toHaveText(phrases[30]!)
+  await expect.poll(() => highlight.evaluate(element => {
+    const box = element.getBoundingClientRect()
+    const view = element.closest('ol')!.getBoundingClientRect()
+    return box.top >= view.top && box.bottom <= view.bottom
+  })).toBe(true)
+  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
   expect(unexpected).toEqual([])
 })

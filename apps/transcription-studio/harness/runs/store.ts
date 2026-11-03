@@ -101,7 +101,34 @@ export async function recoverInterruptedRuns(): Promise<void> {
 }
 
 /** Ownership is committed atomically, and an old release callback cannot remove its successor. */
-export async function acquireRunLock(): Promise<() => Promise<void>> {
+export interface RunLease {
+  (): Promise<void>
+  readonly token: string
+  transfer(pid: number): Promise<void>
+}
+
+export async function releaseRunLock(token: string): Promise<void> {
+  const db = await database()
+  try { db.query('DELETE FROM owner WHERE singleton = 1 AND token = ?').run(token) }
+  finally { db.close() }
+}
+
+export async function currentLeaseToken(): Promise<string | undefined> {
+  const db = await database()
+  try { return currentOwner(db)?.token }
+  finally { db.close() }
+}
+
+export async function assertRunOwner(token: string): Promise<void> {
+  const db = await database()
+  try {
+    const owner = currentOwner(db)
+    if (owner?.token !== token || owner.pid !== process.pid) throw new Error('Job coordinator does not own native admission')
+  }
+  finally { db.close() }
+}
+
+export async function acquireRunLock(): Promise<RunLease> {
   const db = await database()
   const token = crypto.randomUUID()
   try {
@@ -113,9 +140,19 @@ export async function acquireRunLock(): Promise<() => Promise<void>> {
     }).immediate()
   }
   finally { db.close() }
-  return async () => {
-    const releaseDb = await database()
-    try { releaseDb.query('DELETE FROM owner WHERE singleton = 1 AND token = ?').run(token) }
-    finally { releaseDb.close() }
-  }
+  return Object.assign(() => releaseRunLock(token), {
+    token,
+    async transfer(pid: number) {
+      if (!Number.isSafeInteger(pid) || pid <= 0 || !alive(pid)) throw new Error('Invalid coordinator process')
+      const transferDb = await database()
+      try {
+        transferDb.transaction(() => {
+          const owner = currentOwner(transferDb)
+          if (owner?.token !== token || owner.pid !== process.pid) throw new Error('Native admission ownership changed')
+          transferDb.query('UPDATE owner SET pid = ? WHERE singleton = 1 AND token = ?').run(pid, token)
+        }).immediate()
+      }
+      finally { transferDb.close() }
+    },
+  })
 }

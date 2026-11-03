@@ -1,4 +1,5 @@
 import type { RunStatus, WorkerResult } from './studio'
+import type { TranscriptProcessingToggles } from './transcriptProcessing'
 
 export interface LocationSettings {
   sourceDirectory: string
@@ -9,6 +10,7 @@ export interface LocationSettings {
 export interface WorkspacePreferences {
   selectedJobId: string | null
   copyWithSpeakers: boolean
+  transcriptProcessing?: TranscriptProcessingToggles
 }
 
 export interface JobProgress {
@@ -30,6 +32,11 @@ export interface TranscriptionJob {
   error?: string
   outputPath?: string
   progress?: JobProgress
+  /** Opaque file identity; filenames alone must never merge different locations. */
+  recordingId?: string
+  hasTranscript?: boolean
+  retryAvailable?: boolean
+  retryUnavailableReason?: string
 }
 
 export interface TranscriptionDetail extends TranscriptionJob {
@@ -48,6 +55,7 @@ export interface WorkspaceSnapshot {
 }
 
 export interface SourceFile {
+  recordingId?: string
   name: string
   bytes: number
   modifiedAt: string

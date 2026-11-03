@@ -1,9 +1,10 @@
 import { constants } from 'node:fs'
 import { access, lstat, mkdir, readdir, realpath } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, normalize, parse, resolve } from 'node:path'
-import type { LocationSettings, SourceFile } from '../../shared/workspace'
-import { normaliseDirectoryPath } from '../../shared/normaliseDirectoryPath'
+import type { LocationSettings, SourceFile } from '#shared/workspace'
+import { normaliseDirectoryPath } from '#shared/normaliseDirectoryPath'
 import { privateRoot, studioRoot } from '../paths'
+import { directoryRecordingId } from './recordingIdentity'
 
 export const maxInputBytes = 2 * 1024 ** 3
 const extensions = new Set(['.wav', '.mp3', '.m4a', '.mp4', '.aac', '.flac', '.ogg', '.opus', '.aiff', '.aif', '.wma', '.webm'])
@@ -92,7 +93,7 @@ export async function sourceFiles(settings: LocationSettings): Promise<SourceFil
     try { sourceName(entry.name) } catch { continue }
     try {
       const stat = await lstat(resolve(settings.sourceDirectory, entry.name))
-      if (stat.isFile() && stat.size > 0 && stat.size <= maxInputBytes) files.push({ name: entry.name, bytes: stat.size, modifiedAt: stat.mtime.toISOString() })
+      if (stat.isFile() && stat.size > 0 && stat.size <= maxInputBytes) files.push({ recordingId: directoryRecordingId(resolve(settings.sourceDirectory, entry.name)), name: entry.name, bytes: stat.size, modifiedAt: stat.mtime.toISOString() })
     }
     // An actively watched folder may change between readdir and lstat.
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }

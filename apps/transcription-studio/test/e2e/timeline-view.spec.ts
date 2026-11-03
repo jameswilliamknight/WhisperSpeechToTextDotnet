@@ -17,7 +17,6 @@ test('timeline view survives refresh and resets for a different selection', asyn
   await page.reload()
   await expect(expand).toHaveAttribute('aria-pressed', 'false')
   await expand.click()
-  await page.getByRole('tab', { name: 'Recordings', exact: true }).click()
   await page.getByLabel('Choose audio file', { exact: true }).setInputFiles({ name: 'new.wav', mimeType: 'audio/wav', buffer: Buffer.from('synthetic') })
   await expect(expand).toHaveAttribute('aria-pressed', 'false')
   expect(unexpected).toEqual([])

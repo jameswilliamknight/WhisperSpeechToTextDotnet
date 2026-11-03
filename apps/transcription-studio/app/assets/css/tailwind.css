@@ -1,6 +1,35 @@
 @import "tailwindcss";
 @source "../../";
 
+/* Animate an inherited registered property: native scrollbar pseudo-elements do
+   not reliably animate their own background/opacity transitions. Each area resets
+   the property so hovering an outer page does not reveal every nested scrollbar. */
+@property --studio-scrollbar-opacity {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+@layer utilities {
+  .scrollbar-area {
+    --studio-scrollbar-opacity: 0;
+    transition: --studio-scrollbar-opacity 200ms ease;
+  }
+  .scrollbar-area:hover { --studio-scrollbar-opacity: 1; }
+  .hover-scrollbar::-webkit-scrollbar-thumb,
+  .hover-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--color-fb-primary) calc(var(--studio-scrollbar-opacity) * 100%), transparent);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    .hover-scrollbar {
+      scrollbar-color: color-mix(in srgb, var(--color-fb-primary) calc(var(--studio-scrollbar-opacity) * 100%), transparent) transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scrollbar-area { transition-duration: 0ms; }
+  }
+}
+
 @layer base {
   body {
     background: var(--fb-canvas);

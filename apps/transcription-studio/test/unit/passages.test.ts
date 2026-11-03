@@ -9,7 +9,7 @@ test('merges word-level records without changing raw segments', () => {
     { start: 6.2, end: 6.6, text: 'things', speaker: 'a' },
   ]
   const original = structuredClone(words)
-  expect(transcriptPassages(words)).toEqual([{ start: 5, end: 6.6, text: 'you know, several things', speaker: 'a' }])
+  expect(transcriptPassages(words)).toEqual([{ start: 5, end: 6.6, text: 'you know, several things', speaker: 'a', sources: words }])
   expect(words).toEqual(original)
 })
 

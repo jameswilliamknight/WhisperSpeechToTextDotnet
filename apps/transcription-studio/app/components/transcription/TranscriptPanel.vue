@@ -4,21 +4,25 @@ import UiButton from '#layers/freebore-ui/app/components/ui/UiButton.vue'
 import UiIconButton from '#layers/freebore-ui/app/components/ui/UiIconButton.vue'
 import UiTooltip from '#layers/freebore-ui/app/components/ui/UiTooltip.vue'
 import { Copy, LocateFixed } from 'lucide-vue-next'
-import type { TranscriptionDetail } from '../../../shared/workspace'
+import type { TranscriptionDetail } from '#shared/workspace'
 import { formatTranscript } from '#shared/transcriptText'
 import { speakerIds as getSpeakerIds, speakerLabels } from '#shared/speakerNames'
 import { speakerColor } from '#shared/speakerColors'
-import { transcriptPassages } from '../../utils/transcriptPassages'
-import { timestamp } from '../../utils/studioFormat'
-import RenameSpeakerModal from '../speakers/RenameSpeakerModal.vue'
-import SpeakerName from '../speakers/SpeakerName.vue'
-import SpeakerTimeline from '../studio/SpeakerTimeline.vue'
+import { transcriptPassages } from '~/utils/transcriptPassages'
+import { timestamp } from '~/utils/studioFormat'
+import RenameSpeakerModal from '~/components/speakers/RenameSpeakerModal.vue'
+import SpeakerName from '~/components/speakers/SpeakerName.vue'
+import SpeakerTimeline from '~/components/studio/SpeakerTimeline.vue'
 import TranscriptTimelineFrame from './TranscriptTimelineFrame.vue'
-import { useTimelineAudio } from '../../composables/useTimelineAudio'
-import { usePlaybackShortcut } from '../../composables/usePlaybackShortcut'
-import { useTranscriptFollow } from '../../composables/useTranscriptFollow'
+import { useTimelineAudio } from '~/composables/useTimelineAudio'
+import { usePlaybackShortcut } from '~/composables/usePlaybackShortcut'
+import { useTranscriptFollow } from '~/composables/useTranscriptFollow'
+import { useActiveTurns } from '~/composables/useActiveTurns'
+import { highlightText } from '~/utils/transcriptHighlight'
+import HighlightedTranscriptText from './HighlightedTranscriptText.vue'
+import { useTranscriptProcessing } from '~/composables/useTranscriptProcessing'
 
-const props = defineProps<{ job: TranscriptionDetail | null; loading: boolean; withSpeakers: boolean }>()
+const props = defineProps<{ job: TranscriptionDetail | null; loading: boolean; withSpeakers: boolean; progressVisible?: boolean; progressMessage?: string }>()
 const emit = defineEmits<{
   renameSpeaker: [{ speakerId: string; name: string }]
 }>()
@@ -29,14 +33,21 @@ const audio = useTemplateRef<HTMLAudioElement>('audio')
 const audioSource = computed(() => props.job?.audioAvailable ? `/api/transcriptions/${encodeURIComponent(props.job.id)}/audio` : undefined)
 const { currentTime, duration, playing, audioError, audioAvailable, seek, togglePlayback } = useTimelineAudio({
   audio, source: () => audioSource.value, identity: () => props.job?.id,
+  positionKey: () => props.job ? `recording:${props.job.recordingId ?? props.job.id}` : undefined,
 })
 usePlaybackShortcut(() => !props.loading && !!props.job?.result && audioAvailable.value, togglePlayback)
 const renameSpeakerId = shallowRef<string | null>(null)
-const passages = computed(() => transcriptPassages(props.job?.result?.segments ?? []))
+const turns = computed(() => props.job?.result?.turns ?? [])
+const processing = useTranscriptProcessing()
+const active = useActiveTurns(() => turns.value, () => currentTime.value)
+const passages = computed(() => transcriptPassages(props.job?.result?.segments ?? [], 1.5, turns.value, processing.value).map(passage => ({
+  ...passage, content: highlightText(passage.sources, turns.value, processing.value),
+})))
 const passageList = useTemplateRef<HTMLOListElement>('passageList')
 const transcriptFollow = useTranscriptFollow({
   viewport: passageList, passages: () => passages.value,
   position: () => currentTime.value, identity: () => props.job?.id,
+  phraseKey: () => active.value.join(','),
 })
 function seekAndFollow(seconds: number) {
   seek(seconds)
@@ -69,7 +80,7 @@ async function copy() {
   copyStatus.value = ''; copyError.value = ''
   if (!props.job?.result) return
   try {
-    await navigator.clipboard.writeText(formatTranscript(props.job.result, props.withSpeakers, props.job.speakerNames))
+    await navigator.clipboard.writeText(formatTranscript(props.job.result, props.withSpeakers, props.job.speakerNames, processing.value))
     copyStatus.value = props.withSpeakers ? 'Speaker-labelled text copied.' : 'Plain text copied.'
   }
   catch { copyError.value = 'Could not copy to the clipboard. Check browser clipboard permissions.' }
@@ -79,7 +90,8 @@ async function copy() {
 <template>
   <div class="grid min-h-0 flex-1 grid-cols-[minmax(20rem,0.85fr)_minmax(0,1.5fr)] grid-rows-[auto_minmax(0,1fr)] items-stretch gap-5">
     <audio v-if="!loading && job?.result && audioSource" ref="audio" hidden preload="metadata" :src="audioSource" />
-    <TranscriptTimelineFrame :available="!loading && !!job?.result" :loading="loading">
+    <TranscriptTimelineFrame :available="!progressVisible && !loading && !!job?.result" :loading="loading" :progress="progressVisible">
+      <template #progress><slot name="progress" /></template>
         <SpeakerTimeline v-if="job?.result" :identity="`job:${job.id}`" :turns="job.result.turns" :segments="job.result.segments" :duration="duration || job.durationSeconds" :speaker-names="job.speakerNames" :current-time="currentTime" :playing="playing" :audio-available="audioAvailable" @toggle-playback="togglePlayback" @seek="seekAndFollow" @rename-speaker="editSpeaker">
           <template #heading><span aria-hidden="true" class="invisible font-medium">Timeline</span></template>
           <template #actions>
@@ -93,13 +105,14 @@ async function copy() {
         </SpeakerTimeline>
     </TranscriptTimelineFrame>
     <aside class="col-start-1 row-start-2 flex min-h-0 flex-col" aria-label="Audio files and history"><slot name="sidebar" /></aside>
-    <section aria-labelledby="transcript-heading" class="relative col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-fb-border">
+    <section aria-labelledby="transcript-heading" class="scrollbar-area relative col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-fb-border">
       <h2 id="transcript-heading" class="sr-only">Transcript</h2>
-      <p v-if="loading" role="status" class="flex-1 p-8 text-sm text-fb-muted">Loading transcript…</p>
+      <p v-if="progressVisible" role="status" class="flex-1 p-8 text-sm text-fb-muted">{{ progressMessage ?? 'Transcribing… The transcript will be available when processing finishes.' }}</p>
+      <p v-else-if="loading" role="status" class="flex-1 p-8 text-sm text-fb-muted">Loading transcript…</p>
       <p v-else-if="!job" class="flex-1 p-8 text-sm text-fb-muted">Select a transcription from history.</p>
       <div v-else-if="!job.result" class="flex-1 space-y-2 p-8 text-sm text-fb-muted"><p>{{ job.status === 'running' ? 'Transcribing locally…' : 'No transcript available.' }}</p><p v-if="job.error" role="alert" class="text-fb-danger">{{ job.error }}</p><p v-if="job.status !== 'running'" class="capitalize">{{ job.status }}</p></div>
       <template v-else>
-        <ol v-if="passages.length" ref="passageList" aria-label="Transcript passages" tabindex="0" class="min-h-[20rem] flex-1 divide-y divide-fb-border overflow-y-auto overscroll-contain" @wheel.passive="transcriptFollow.onWheel" @pointerdown="transcriptFollow.onPointerDown" @keydown="transcriptFollow.onKeydown">
+        <ol v-if="passages.length" ref="passageList" aria-label="Transcript passages" tabindex="0" class="hover-scrollbar min-h-[20rem] flex-1 divide-y divide-fb-border overflow-y-auto overscroll-contain pr-2 [scrollbar-gutter:stable] focus-visible:bg-fb-surface-muted/10 focus-visible:outline-none" @wheel.passive="transcriptFollow.onWheel" @pointerdown="transcriptFollow.onPointerDown" @keydown="transcriptFollow.onKeydown">
           <li v-for="(passage, index) in passages" :key="index" :data-passage-index="index" :aria-current="index === transcriptFollow.activeIndex.value ? 'true' : undefined" :style="speakerColor(passage.speaker, speakers)" class="grid grid-cols-[8rem_1fr] gap-4 px-5 py-4 transition-colors motion-reduce:transition-none" :class="{ 'bg-fb-primary-soft/20': index === transcriptFollow.activeIndex.value }">
             <div>
               <span class="group/timestamp flex items-center gap-2.5">
@@ -111,11 +124,11 @@ async function copy() {
               <SpeakerName v-if="passage.speaker" class="mt-1 text-xs" :name="labels.get(passage.speaker) ?? passage.speaker" @edit="editSpeaker(passage.speaker)" />
               <p v-else class="mt-1 text-xs text-fb-muted">Unlabelled</p>
             </div>
-            <p class="whitespace-pre-wrap break-words text-sm leading-7">{{ passage.text }}</p>
+            <p class="whitespace-pre-wrap break-words text-sm leading-7"><HighlightedTranscriptText :content="passage.content" :turns="turns" :speakers="speakers" :active="active" /></p>
           </li>
         </ol>
         <p v-else class="flex-1 p-8 text-sm text-fb-muted">No transcript passages were returned.</p>
-        <UiButton v-if="passages.length && !transcriptFollow.following.value" size="sm" class="absolute right-4 bottom-4 shadow-lg" @click="transcriptFollow.resume">Resume following</UiButton>
+        <UiButton v-if="passages.length && !transcriptFollow.following.value" size="sm" class="absolute right-4 bottom-4 shadow-lg" @click="transcriptFollow.resume">Follow playback</UiButton>
       </template>
     </section>
     <RenameSpeakerModal

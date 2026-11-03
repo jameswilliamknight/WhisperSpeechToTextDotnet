@@ -1,4 +1,6 @@
-export type Segment = { start: number; end: number; text: string; speaker?: string };
+import { whisperWordAlignment, type WordAlignment } from './wordTimings';
+
+export type Segment = { start: number; end: number; text: string; speaker?: string; alignment?: WordAlignment };
 export type Turn = { start: number; end: number; speaker: string };
 
 function object(value: unknown): Record<string, unknown> {
@@ -21,7 +23,9 @@ export function parseWhisper(value: unknown): Segment[] {
     const row = object(item), offsets = object(row.offsets);
     const times = span(offsets.from, offsets.to);
     if (typeof row.text !== "string") throw new Error("Invalid Whisper text");
-    return { start: times.start / 1000, end: times.end / 1000, text: row.text.trim() };
+    const source = { start: times.start / 1000, end: times.end / 1000, text: row.text.trim() };
+    const alignment = whisperWordAlignment(row, source);
+    return { ...source, ...(alignment ? { alignment } : {}) };
   });
 }
 

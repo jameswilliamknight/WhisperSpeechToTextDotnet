@@ -1,6 +1,9 @@
-import type { TranscriptSegment } from './studio'
+import type { SpeakerTurn, TranscriptSegment } from './studio'
+import { speakerSegments } from './speakerSegments'
+import { processingOptions } from './transcriptProcessing'
+import type { TranscriptProcessing } from './transcriptProcessing'
 
-function joinText(left: string, right: string): string {
+export function joinText(left: string, right: string): string {
   const word = right.trim()
   if (!word) return left
   if (!left) return word
@@ -8,16 +11,24 @@ function joinText(left: string, right: string): string {
   return `${left}${noSpace ? '' : ' '}${word}`
 }
 
-/** Presentation only: retain native word records and raw diarisation turns for benchmarking/export. */
-export function transcriptPassages(segments: readonly Readonly<TranscriptSegment>[], pauseSeconds = 1.5): TranscriptSegment[] {
-  const passages: TranscriptSegment[] = []
-  for (const segment of segments) {
+export interface TranscriptPassage extends TranscriptSegment {
+  sources: readonly Readonly<TranscriptSegment>[]
+}
+
+/** Presentation only: retain native source records for alignment and unchanged exports. */
+export function transcriptPassages(segments: readonly Readonly<TranscriptSegment>[], pauseSeconds = 1.5, turns: readonly Readonly<SpeakerTurn>[] = [], input?: Partial<TranscriptProcessing>): TranscriptPassage[] {
+  const options = processingOptions(input)
+  const passages: TranscriptPassage[] = []
+  for (const segment of speakerSegments(segments, turns, options)) {
     const previous = passages.at(-1)
-    if (previous && previous.speaker === segment.speaker && segment.start >= previous.start && segment.start - previous.end <= pauseSeconds) {
+    if (options.groupSameSpeaker && previous && previous.speaker === segment.speaker && segment.start >= previous.start && segment.start - previous.end <= pauseSeconds) {
       previous.end = Math.max(previous.end, segment.end)
       previous.text = joinText(previous.text, segment.text)
+      previous.sources = [...previous.sources, segment]
+      // A grouped passage has different text/times; only source segments own alignment.
+      delete previous.alignment
     }
-    else passages.push({ ...segment, text: segment.text.trim() })
+    else passages.push({ ...segment, text: segment.text.trim(), sources: [segment] })
   }
   return passages
 }

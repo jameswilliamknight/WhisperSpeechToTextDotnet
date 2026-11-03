@@ -2,15 +2,19 @@
 import { computed, shallowRef, useTemplateRef, watch } from 'vue'
 import type { DeepReadonly } from 'vue'
 import UiButton from '#layers/freebore-ui/app/components/ui/UiButton.vue'
-import type { BenchmarkRun } from '../../../shared/studio'
+import type { BenchmarkRun } from '#shared/studio'
 import { speakerIds as getSpeakerIds, speakerLabels } from '#shared/speakerNames'
 import { speakerColor } from '#shared/speakerColors'
-import { timestamp } from '../../utils/studioFormat'
-import { transcriptPassages } from '../../utils/transcriptPassages'
-import RenameSpeakerModal from '../speakers/RenameSpeakerModal.vue'
-import SpeakerName from '../speakers/SpeakerName.vue'
+import { timestamp } from '~/utils/studioFormat'
+import { transcriptPassages } from '~/utils/transcriptPassages'
+import RenameSpeakerModal from '~/components/speakers/RenameSpeakerModal.vue'
+import SpeakerName from '~/components/speakers/SpeakerName.vue'
 import SpeakerTimeline from './SpeakerTimeline.vue'
-import { useTimelineAudio } from '../../composables/useTimelineAudio'
+import { useTimelineAudio } from '~/composables/useTimelineAudio'
+import { useActiveTurns } from '~/composables/useActiveTurns'
+import { highlightText } from '~/utils/transcriptHighlight'
+import HighlightedTranscriptText from '~/components/transcription/HighlightedTranscriptText.vue'
+import { useTranscriptProcessing } from '~/composables/useTranscriptProcessing'
 
 const props = defineProps<{ run: DeepReadonly<BenchmarkRun> | null; audioAvailable: boolean }>()
 const emit = defineEmits<{ renameSpeaker: [{ speakerId: string; name: string }] }>()
@@ -18,9 +22,15 @@ const audio = useTemplateRef<HTMLAudioElement>('audio')
 const audioSource = computed(() => props.audioAvailable ? '/api/audio' : undefined)
 const { currentTime, duration, playing, audioError, audioAvailable: playbackAvailable, seek, togglePlayback } = useTimelineAudio({
   audio, source: () => audioSource.value, identity: () => props.run?.id,
+  positionKey: () => props.run ? `run:${props.run.id}` : undefined,
 })
 const renameSpeakerId = shallowRef<string | null>(null)
-const passages = computed(() => transcriptPassages(props.run?.result?.segments ?? []))
+const turns = computed(() => props.run?.result?.turns ?? [])
+const processing = useTranscriptProcessing()
+const active = useActiveTurns(() => turns.value, () => currentTime.value)
+const passages = computed(() => transcriptPassages(props.run?.result?.segments ?? [], 1.5, turns.value, processing.value).map(passage => ({
+  ...passage, content: highlightText(passage.sources, turns.value, processing.value),
+})))
 const speakers = computed(() => props.run?.result ? getSpeakerIds(props.run.result) : [])
 const labels = computed(() => speakerLabels(speakers.value, props.run?.speakerNames))
 const renameCurrentName = computed(() => renameSpeakerId.value ? labels.value.get(renameSpeakerId.value) ?? '' : '')
@@ -42,7 +52,7 @@ function saveSpeakerName(name: string) {
 </script>
 
 <template>
-  <section aria-labelledby="review-heading" class="min-w-0 overflow-hidden rounded-md border border-fb-border">
+  <section aria-labelledby="review-heading" class="scrollbar-area min-w-0 overflow-hidden rounded-md border border-fb-border">
     <header v-if="!run?.result" class="border-b border-fb-border px-5 py-3">
       <h2 id="review-heading" class="text-base font-medium">Transcript &amp; speakers</h2>
     </header>
@@ -60,10 +70,10 @@ function saveSpeakerName(name: string) {
           <p v-if="audioError" role="status" class="mb-2 text-xs text-fb-warning">Audio could not be loaded. Transcript review remains available.</p>
         </template>
       </SpeakerTimeline>
-      <ol v-if="passages.length" class="max-h-[34rem] divide-y divide-fb-border overflow-y-auto" aria-label="Transcript segments">
+      <ol v-if="passages.length" class="hover-scrollbar max-h-[34rem] divide-y divide-fb-border overflow-y-auto pr-2 [scrollbar-gutter:stable]" aria-label="Transcript segments">
         <li v-for="(segment, index) in passages" :key="index" :style="speakerColor(segment.speaker, speakers)" class="grid gap-3 px-5 py-5 sm:grid-cols-[9rem_1fr]">
           <div><UiButton variant="naked" size="sm" class="cursor-default px-0 font-mono text-xs" :disabled="!playbackAvailable" :aria-label="`Seek to ${timestamp(segment.start)}`" @click="seek(segment.start)">{{ timestamp(segment.start) }} – {{ timestamp(segment.end) }}</UiButton><SpeakerName v-if="segment.speaker" class="mt-1 text-xs" :name="speakerName(segment.speaker)" @edit="editSpeaker(segment.speaker)" /><p v-else class="mt-1 text-xs text-fb-muted">Unlabelled</p></div>
-          <p class="whitespace-pre-wrap break-words text-sm leading-7">{{ segment.text }}</p>
+          <p class="whitespace-pre-wrap break-words text-sm leading-7"><HighlightedTranscriptText :content="segment.content" :turns="turns" :speakers="speakers" :active="active" /></p>
         </li>
       </ol>
       <p v-else class="p-8 text-center text-sm text-fb-muted">The backend returned no transcript segments.</p>

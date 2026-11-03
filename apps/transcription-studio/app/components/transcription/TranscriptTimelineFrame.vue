@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onScopeDispose, shallowRef, useTemplateRef, watch } from 'vue'
 
-const props = defineProps<{ available: boolean; loading: boolean }>()
+const props = defineProps<{ available: boolean; loading: boolean; progress?: boolean }>()
 const frame = useTemplateRef<HTMLElement>('frame')
 const height = shallowRef(164)
 const lanes = shallowRef(2)
@@ -33,8 +33,9 @@ onScopeDispose(() => observer?.disconnect())
 
 <template>
   <div ref="frame" data-testid="transcript-timeline-frame" class="relative col-span-2 col-start-1 row-start-1 grid overflow-hidden rounded-md border border-fb-border" :style="{ minHeight: `${height}px` }">
-    <h2 class="pointer-events-none absolute top-3 left-5 z-10 flex h-8 items-center font-medium">Timeline</h2>
-    <Transition enter-active-class="transition-opacity duration-300 motion-reduce:transition-none" leave-active-class="transition-opacity duration-200 motion-reduce:transition-none" enter-from-class="opacity-0" leave-to-class="opacity-0">
+    <h2 v-if="!progress" class="pointer-events-none absolute top-3 left-5 z-10 flex h-8 items-center font-medium">Timeline</h2>
+    <div v-if="progress" class="col-start-1 row-start-1 min-w-0 self-stretch"><slot name="progress" /></div>
+    <Transition v-else enter-active-class="transition-opacity duration-300 motion-reduce:transition-none" leave-active-class="transition-opacity duration-200 motion-reduce:transition-none" enter-from-class="opacity-0" leave-to-class="opacity-0">
       <div v-if="available" key="timeline" class="col-start-1 row-start-1 min-w-0 self-start"><slot /></div>
       <section v-else key="placeholder" aria-label="Timeline unavailable" :aria-busy="loading" class="col-start-1 row-start-1 px-5 py-3">
         <div class="mb-3 flex h-8 items-center gap-4">

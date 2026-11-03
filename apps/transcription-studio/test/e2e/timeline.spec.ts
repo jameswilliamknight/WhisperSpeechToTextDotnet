@@ -10,8 +10,11 @@ async function followGeometry(page: Page) {
     const head = playhead.getBoundingClientRect()
     const x = head.left + head.width / 2 - view.getBoundingClientRect().left
     const maximum = view.scrollWidth - view.clientWidth
-    const expected = Math.max(0, Math.min(maximum, view.scrollLeft + x - view.clientWidth / 2))
-    return { scroll: view.scrollLeft, maximum, x, centre: view.clientWidth / 2, error: Math.abs(view.scrollLeft - expected) }
+    const labels = view.parentElement!.querySelector('[aria-label="Timeline speakers"]')!.getBoundingClientRect()
+    const covered = labels.right - view.getBoundingClientRect().left
+    const centre = (view.clientWidth + covered) / 2
+    const expected = Math.max(0, Math.min(maximum, view.scrollLeft + x - centre))
+    return { scroll: view.scrollLeft, maximum, x, centre, error: Math.abs(view.scrollLeft - expected) }
   })
 }
 
@@ -198,6 +201,8 @@ for (const surface of ['workspace', 'benchmarks'] as const) {
     const unexpected = await mockReview(page, surface)
     const canvas = page.getByTestId('timeline-canvas')
     const viewport = page.getByLabel('Timeline viewport')
+    await viewport.hover()
+    await expect.poll(() => viewport.evaluate(element => Number(getComputedStyle(element).getPropertyValue('--studio-scrollbar-opacity')))).toBe(1)
     const scrollbar = await viewport.evaluate(element => ({
       height: getComputedStyle(element, '::-webkit-scrollbar').height,
       radius: getComputedStyle(element, '::-webkit-scrollbar-thumb').borderRadius,
@@ -228,7 +233,8 @@ for (const surface of ['workspace', 'benchmarks'] as const) {
     const labelGutter = page.getByLabel('Timeline speakers', { exact: true })
     const bounds = await labelGutter.boundingBox()
     const viewportBounds = await viewport.boundingBox()
-    expect(bounds!.x + bounds!.width).toBeLessThan(viewportBounds!.x)
+    expect(bounds!.x).toBeGreaterThan(viewportBounds!.x)
+    expect(bounds!.x + bounds!.width).toBeLessThan(viewportBounds!.x + viewportBounds!.width)
 
     await fit.click()
     await expect(page.getByRole('button', { name: 'Expand timeline to time scale' })).toHaveAttribute('aria-pressed', 'false')

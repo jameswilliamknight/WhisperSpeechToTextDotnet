@@ -6,11 +6,12 @@ interface TranscriptFollowOptions {
   passages: () => readonly { start: number; end: number }[]
   position: () => number
   identity: () => string | undefined
+  phraseKey?: () => string
 }
 
 /** Follow the media clock without ever changing it. Only user scroll intent
  * suspends following; our own smooth-scroll events must not detach the reader. */
-export function useTranscriptFollow({ viewport, passages, position, identity }: TranscriptFollowOptions) {
+export function useTranscriptFollow({ viewport, passages, position, identity, phraseKey }: TranscriptFollowOptions) {
   const following = shallowRef(true)
   const activeIndex = computed(() => {
     const rows = passages()
@@ -25,7 +26,10 @@ export function useTranscriptFollow({ viewport, passages, position, identity }: 
     const row = view?.querySelector<HTMLElement>(`[data-passage-index="${activeIndex.value}"]`)
     if (!view || !row) return
     const box = view.getBoundingClientRect()
-    const bounds = row.getBoundingClientRect()
+    // Long uninterrupted speech can form a passage taller than the viewport.
+    // Follow its current phrase, not the centre of the entire paragraph.
+    const target = row.querySelector<HTMLElement>('[data-playback-highlight]') ?? row
+    const bounds = target.getBoundingClientRect()
     if (!force && bounds.top >= box.top + 24 && bounds.bottom <= box.bottom - 24) return
     view.scrollTo({
       top: view.scrollTop + bounds.top - box.top - (view.clientHeight - bounds.height) / 2,
@@ -69,7 +73,7 @@ export function useTranscriptFollow({ viewport, passages, position, identity }: 
     following.value = true
     viewport.value?.scrollTo({ top: 0, behavior: 'instant' })
   }, { flush: 'post' })
-  watch([activeIndex, viewport], () => { if (following.value) reveal() }, { flush: 'post' })
+  watch([activeIndex, viewport, () => phraseKey?.()], () => { if (following.value) reveal() }, { flush: 'post' })
 
   return { following: readonly(following), activeIndex, resume, onWheel, onPointerDown, onKeydown }
 }

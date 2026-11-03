@@ -4,13 +4,14 @@ import type { Ref } from 'vue'
 interface TimelineFollowOptions {
   viewport: Readonly<Ref<HTMLElement | null>>
   canvas: Readonly<Ref<HTMLElement | null>>
+  leadingOverlay?: Readonly<Ref<HTMLElement | null>>
   expanded: Readonly<Ref<boolean>>
   position: Readonly<Ref<number>>
   duration: Readonly<Ref<number>>
 }
 
 /** Follow the media clock, except while the user owns the seek gesture. */
-export function useTimelineFollow({ viewport, canvas, expanded, position, duration }: TimelineFollowOptions) {
+export function useTimelineFollow({ viewport, canvas, leadingOverlay, expanded, position, duration }: TimelineFollowOptions) {
   const dragging = shallowRef(false)
   let observer: ResizeObserver | undefined
   let panFrame: number | undefined
@@ -25,9 +26,13 @@ export function useTimelineFollow({ viewport, canvas, expanded, position, durati
     const rail = content.querySelector<HTMLInputElement>('input[type="range"]')
     if (!rail) return 0
     const railBox = rail.getBoundingClientRect()
-    const canvasBox = content.getBoundingClientRect()
-    const x = railBox.left - canvasBox.left + railBox.width * position.value / duration.value
-    return Math.max(0, Math.min(view.scrollWidth - view.clientWidth, x - view.clientWidth / 2))
+    // Include the viewport's padded rail origin. Canvas-local coordinates miss
+    // that gutter and leave the playhead consistently off-centre by 8px.
+    const x = view.scrollLeft + railBox.left - view.getBoundingClientRect().left + railBox.width * position.value / duration.value
+    // A wider viewport reveals the *same* turns beneath the fixed label gutter.
+    // Centre playback in the usable rail, not behind those non-interactive labels.
+    const covered = Math.max(0, (leadingOverlay?.value?.getBoundingClientRect().right ?? view.getBoundingClientRect().left) - view.getBoundingClientRect().left)
+    return Math.max(0, Math.min(view.scrollWidth - view.clientWidth, x - (view.clientWidth + covered) / 2))
   }
 
   function center() {

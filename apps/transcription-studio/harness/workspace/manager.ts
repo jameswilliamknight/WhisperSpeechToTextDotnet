@@ -1,20 +1,16 @@
-import { access, lstat, mkdir } from 'node:fs/promises'
+import { access, lstat } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { extname, join } from 'node:path'
+import { join } from 'node:path'
 import type { Readable } from 'node:stream'
-import type { LocationSettings, TranscriptionJob, WorkspacePreferences, WorkspaceSnapshot } from '../../shared/workspace'
+import type { LocationSettings, TranscriptionJob, WorkspacePreferences, WorkspaceSnapshot } from '#shared/workspace'
 import { adapterConfiguration } from '../backends/registry'
-import { acquireRunLock } from '../runs/store'
-import { executeJob } from './execute'
-import { copySource, streamInput } from './input'
-import { noSymlinks, sourceName, validateSettings, writableDirectory } from './locations'
+import { acquireRunLock, currentLeaseToken } from '../runs/store'
+import { launchCoordinator, CoordinatorOwnershipError } from './coordinator'
+import { noSymlinks, validateSettings } from './locations'
+import { prepareTranscription, UnpersistedPreparationError } from './prepare'
+import { recordingId, retryAvailability } from './recordings'
 import { jobProgress } from './progress'
 import * as store from './store'
-
-interface Active { record: store.JobRecord; controller: AbortController; done: Promise<void> }
-const stateKey = Symbol.for('transcription-studio.workspace')
-const root = globalThis as typeof globalThis & { [stateKey]?: { active?: Active } }
-const state = root[stateKey] ??= {}
 
 export async function engineReadiness(): Promise<WorkspaceSnapshot['engine']> {
   try {
@@ -46,7 +42,6 @@ async function recoverOwned(): Promise<void> {
   }
 }
 async function recoverIfIdle(): Promise<void> {
-  if (state.active) return
   let release: (() => Promise<void>)
   try { release = await acquireRunLock() }
   catch (error) {
@@ -61,7 +56,7 @@ async function recoverIfIdle(): Promise<void> {
 export function summary(record: store.JobRecord): TranscriptionJob {
   // Renames and transcript content stay in the detail response, not the polled job list.
   const { result: _result, audioAvailable: _audioAvailable, speakerNames: _speakerNames, ...metadata } = record.detail
-  return metadata
+  return { ...metadata, recordingId: recordingId(record), hasTranscript: !!record.detail.result && record.detail.status === 'succeeded' }
 }
 
 export async function workspaceSnapshot(): Promise<WorkspaceSnapshot> {
@@ -70,7 +65,7 @@ export async function workspaceSnapshot(): Promise<WorkspaceSnapshot> {
     const item = summary(record)
     const progress = await jobProgress(record)
     if (progress) item.progress = progress
-    return item
+    return { ...item, ...await retryAvailability(record) }
   }))
   return { settings: await store.settings(), preferences: await store.preferences(), jobs, activeJobId: jobs.find(job => job.status === 'running')?.id ?? null, engine: await engineReadiness() }
 }
@@ -89,7 +84,9 @@ export async function updateSettings(input: LocationSettings): Promise<LocationS
 export async function updatePreferences(input: WorkspacePreferences): Promise<WorkspacePreferences> {
   if (typeof input.copyWithSpeakers !== 'boolean' || (input.selectedJobId !== null && typeof input.selectedJobId !== 'string')) throw new Error('Invalid workspace preferences')
   if (input.selectedJobId !== null) await store.job(input.selectedJobId)
-  const saved = { selectedJobId: input.selectedJobId, copyWithSpeakers: input.copyWithSpeakers }
+  const previous = await store.preferences()
+  const saved = { selectedJobId: input.selectedJobId, copyWithSpeakers: input.copyWithSpeakers,
+    transcriptProcessing: { ...previous.transcriptProcessing, ...input.transcriptProcessing } }
   await store.savePreferences(saved)
   return saved
 }
@@ -98,51 +95,27 @@ export async function updateSpeakerNames(id: string, input: Record<string, strin
   return store.updateSpeakerNames(id, input)
 }
 
-export async function startTranscription(name: unknown, upload?: Readable): Promise<TranscriptionJob> {
-  const leaf = sourceName(name)
+export async function startTranscription(name: unknown, upload?: Readable, retryId?: string): Promise<TranscriptionJob> {
   const engine = await engineReadiness()
   if (!engine.available) throw new Error(engine.reason)
   const release = await acquireRunLock()
   let record: store.JobRecord | undefined
   try {
     await recoverOwned()
-    const settings = await validateSettings(await store.settings())
-    if (!upload && !settings.sourceDirectory) throw new Error('Configure a source directory or upload an audio file')
-    await writableDirectory(settings.workingDirectory)
-    await writableDirectory(settings.outputDirectory)
-    const id = crypto.randomUUID()
-    const directory = join(settings.workingDirectory, id)
-    await mkdir(directory, { mode: 0o700 })
-    record = {
-      detail: { id, name: leaf, status: 'running', phase: 'Copying audio into private workspace', startedAt: new Date().toISOString(), audioAvailable: false },
-      settings, directory, inputPath: join(directory, `source${extname(leaf).toLowerCase()}`), audioPath: join(directory, 'input.wav'),
-    }
-    await store.saveJob(record)
-    if (upload) await streamInput(record.inputPath, upload)
-    else await copySource(record, join(settings.sourceDirectory, leaf))
-    record.detail.phase = 'Preparing working audio'
-    await store.saveJob(record)
+    const previous = retryId ? await store.job(retryId) : undefined
+    record = await prepareTranscription(previous?.detail.name ?? name, upload, previous)
+    await launchCoordinator(record, release)
   }
   catch (error) {
-    if (record) {
-      record.detail.status = 'failed'; record.detail.phase = 'Input preparation failed'
-      record.detail.error = error instanceof Error ? error.message : 'Input preparation failed'
-      record.detail.finishedAt = new Date().toISOString()
-      // Never free ownership if recording the failure fails.
-      await store.saveJob(record)
-    }
+    if (error instanceof UnpersistedPreparationError || error instanceof CoordinatorOwnershipError) throw error
     await release()
     throw error
   }
-  const active: Active = { record, controller: new AbortController(), done: Promise.resolve() }
-  state.active = active
-  active.done = executeJob(record, active.controller).then(async () => {
-    await release()
-    if (state.active === active) state.active = undefined
-  })
-  // Details stay private; a persistence failure retains lease admission until explicit recovery.
-  void active.done.catch(() => {})
   return summary(record)
+}
+
+export async function retryTranscription(id: string): Promise<TranscriptionJob> {
+  return startTranscription(undefined, undefined, id)
 }
 
 export async function transcriptionDetail(id: string) {
@@ -153,15 +126,11 @@ export async function transcriptionDetail(id: string) {
 }
 
 export async function cancelTranscription(id: string): Promise<void> {
+  const token = await currentLeaseToken()
   if (!await store.requestCancel(id)) return
-  if (state.active?.record.detail.id === id) {
-    state.active.controller.abort()
-    await state.active.done
-    return
-  }
   // Cross-process requests wait for durable completion: no success before worker cleanup and lease release.
   const deadline = Date.now() + 30_000
-  while ((await store.job(id)).detail.status === 'running') {
+  while ((await store.job(id)).detail.status === 'running' || (token && await currentLeaseToken() === token)) {
     await recoverIfIdle()
     if (Date.now() > deadline) throw new Error('Cancellation is still pending; native worker admission remains fenced')
     await new Promise(resolve => setTimeout(resolve, 100))

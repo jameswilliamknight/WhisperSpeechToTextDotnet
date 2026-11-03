@@ -35,7 +35,7 @@ const statusClasses: Record<BenchmarkRun['status'], string> = {
     <div v-if="!runs.length" class="px-5 py-12 text-center">
       <p class="text-sm text-fb-foreground-muted">No benchmarks yet</p>
     </div>
-    <div v-else class="overflow-x-auto">
+    <div v-else class="scrollbar-area hover-scrollbar overflow-x-auto">
       <table class="w-full min-w-[760px] text-left text-sm">
         <caption class="sr-only">Local benchmark results. Select a run to review its transcript.</caption>
         <thead class="bg-fb-surface-muted/30 text-xs text-fb-muted">

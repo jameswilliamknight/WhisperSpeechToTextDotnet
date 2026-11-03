@@ -64,6 +64,14 @@ export async function mockReview(page: Page, surface: 'workspace' | 'benchmarks'
       return
     }
     if (path === '/api/workspace') { await route.fulfill({ json: workspace }); return }
+    if (path === '/api/workspace/preferences' && route.request().method() === 'PUT') {
+      workspace.preferences = { ...workspace.preferences, ...route.request().postDataJSON() }
+      await route.fulfill({ json: workspace.preferences }); return
+    }
+    if (path === `/api/transcriptions/${job.id}/speakers` && route.request().method() === 'PUT') {
+      job.speakerNames = (route.request().postDataJSON() as { speakerNames: Record<string, string> }).speakerNames
+      await route.fulfill({ json: job.speakerNames }); return
+    }
     if (path === '/api/source-files') { await route.fulfill({ json: { files: [] } }); return }
     if (path === `/api/transcriptions/${job.id}`) { await route.fulfill({ json: job }); return }
     if (path === '/api/studio') { await route.fulfill({ json: studio }); return }

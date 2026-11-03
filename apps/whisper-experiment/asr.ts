@@ -65,7 +65,8 @@ export function parseWhisperProgress(line: string): number | undefined {
 export async function transcribe(input: string, job: string, onProgress?: (percent: number) => void) {
   const prefix = join(job, "asr");
   const started = performance.now();
-  const command = [cli, "-m", model, "-f", input, "-l", "en", "-oj", "-of", prefix, "-np"];
+  // Full JSON retains native token timestamps without splitting text into tiny exports.
+  const command = [cli, "-m", model, "-f", input, "-l", "en", "-ojf", "-of", prefix, "-np"];
   if (onProgress) command.push("-pp");
   await run(command, "Whisper ASR", {
     onProgressLine: onProgress

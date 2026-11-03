@@ -1,5 +1,5 @@
 import { onMounted, onScopeDispose, watch } from 'vue'
-import { useWorkspaceStore } from '../stores/workspace'
+import { useWorkspaceStore } from '~/stores/workspace'
 
 /** Call once from WorkspaceView setup. EventSource reconnects automatically; every connection
  * starts with a source-change notification to repair any changes missed while disconnected.
@@ -11,6 +11,7 @@ export function useSourceDirectoryWatch() {
   let mounted = false
 
   function refresh() { void store.loadSources(controller.signal) }
+  function connected() { store.sourceReconnecting = false }
 
   watch(() => store.snapshot?.settings.sourceDirectory, () => {
     if (mounted) refresh()
@@ -20,7 +21,8 @@ export function useSourceDirectoryWatch() {
     mounted = true
     refresh()
     connection = new EventSource('/api/source-files/watch')
-    connection.addEventListener('source-change', refresh)
+    connection.onopen = connected
+    connection.addEventListener('source-change', () => { connected(); refresh() })
     connection.addEventListener('watch-error', () => {
       controller.abort()
       controller = new AbortController()
@@ -28,7 +30,9 @@ export function useSourceDirectoryWatch() {
       store.sourceError = 'Recordings folder is unavailable. Automatic updates will retry.'
     })
     connection.onerror = () => {
-      store.sourceError = 'Recordings updates disconnected. Reconnecting automatically…'
+      // A retrying SSE transport is not a folder/read error. Keep usable rows
+      // and expose quiet global feedback without replacing actionable errors.
+      store.sourceReconnecting = true
     }
   })
 
@@ -36,5 +40,6 @@ export function useSourceDirectoryWatch() {
     mounted = false
     controller.abort()
     connection?.close()
+    connected()
   })
 }

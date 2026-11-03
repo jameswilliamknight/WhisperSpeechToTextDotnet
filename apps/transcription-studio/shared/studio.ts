@@ -7,6 +7,21 @@ export interface TranscriptSegment {
   end: number
   text: string
   speaker?: string
+  alignment?: WordAlignment
+}
+
+export interface TimedWord {
+  from: number
+  to: number
+  start: number
+  end: number
+}
+
+/** Exact source snapshot prevents stale character ranges surviving transcript edits. */
+export interface WordAlignment {
+  version: 1
+  source: Readonly<{ text: string; start: number; end: number }>
+  words: readonly Readonly<TimedWord>[]
 }
 
 export interface SpeakerTurn {

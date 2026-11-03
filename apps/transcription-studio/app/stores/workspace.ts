@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, shallowRef } from 'vue'
-import type { LocationSettings, SourceFile, TranscriptionDetail, TranscriptionJob, WorkspacePreferences, WorkspaceSnapshot } from '../../shared/workspace'
+import type { LocationSettings, SourceFile, TranscriptionDetail, TranscriptionJob, WorkspacePreferences, WorkspaceSnapshot } from '#shared/workspace'
+import { recordingRows, successfulFallback } from '#shared/recordingRows'
 
 export function workspaceError(cause: unknown): string {
   const error = cause as { data?: { statusMessage?: string; message?: string }; message?: string }
@@ -20,7 +21,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const uploading = shallowRef(false)
   const error = shallowRef('')
   const sourceError = shallowRef('')
+  const sourceReconnecting = shallowRef(false)
+  const retryRequestedId = shallowRef<string | null>(null)
+  const reviewPendingId = shallowRef<string | null>(null)
   const activeJob = computed(() => snapshot.value?.jobs.find(job => job.id === snapshot.value?.activeJobId) ?? null)
+  const progressJob = computed(() => activeJob.value ?? snapshot.value?.jobs.find(job => job.id === reviewPendingId.value) ?? null)
   let hydration: Promise<void> | undefined
   let refreshRequest: Promise<void> | undefined
   let preferenceQueue = Promise.resolve()
@@ -42,11 +47,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     refreshRequest = (async () => {
       try {
         const previous = snapshot.value?.jobs.find(job => job.id === preferences.value.selectedJobId)
+        const previousActiveId = snapshot.value?.activeJobId
         const next = await $fetch<WorkspaceSnapshot>('/api/workspace')
         snapshot.value = next
+        const finished = next.jobs.find(job => job.id === previousActiveId)
+        if (finished?.status === 'succeeded') reviewPendingId.value = finished.id
         const selected = next.jobs.find(job => job.id === preferences.value.selectedJobId)
         // Metadata polling must not repeatedly download a private, potentially large transcript.
-        if (previous?.status === 'running' && selected && selected.status !== 'running') await loadDetail(selected.id)
+        if (previous?.status === 'running' && selected && selected.status !== 'running') {
+          const fallback = successfulFallback(next.jobs, selected)
+          if (fallback) await selectJob(fallback.id)
+          else await loadDetail(selected.id)
+        }
       }
       catch (cause) { error.value = workspaceError(cause) }
       finally { refreshRequest = undefined }
@@ -64,7 +76,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         snapshot.value = await $fetch<WorkspaceSnapshot>('/api/workspace')
         preferences.value = snapshot.value.preferences
         hydrated.value = true
-        if (preferences.value.selectedJobId) await loadDetail(preferences.value.selectedJobId)
+        if (preferences.value.selectedJobId) {
+          const selected = preferences.value.selectedJobId
+          const row = recordingRows([], snapshot.value.jobs).find(row => row.jobIds.includes(selected))
+          const current = row?.latest?.status === 'running' ? row.latest : row?.transcript ?? row?.latest
+          if (current && current.id !== selected) await selectJob(current.id)
+          else await loadDetail(selected)
+        }
       }
       catch (cause) { error.value = workspaceError(cause) }
       finally { loading.value = false; hydration = undefined }
@@ -147,27 +165,54 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     finally { busy.value = false }
   }
 
-  async function transcribe(source: File | string): Promise<boolean> {
+  async function startJob(request: () => Promise<TranscriptionJob>, upload = false): Promise<boolean> {
+    if (busy.value || snapshot.value?.activeJobId) return false
     error.value = ''
+    reviewPendingId.value = null
     busy.value = true
-    uploading.value = typeof source !== 'string'
+    uploading.value = upload
     uploadController = new AbortController()
     try {
-      const job = typeof source === 'string'
-        ? await $fetch<TranscriptionJob>('/api/transcriptions', { method: 'POST', body: { sourceName: source } })
-        : await $fetch<TranscriptionJob>(`/api/transcriptions/upload?name=${encodeURIComponent(source.name)}`, {
-          method: 'POST', body: source, headers: { 'Content-Type': 'application/octet-stream' }, signal: uploadController.signal,
-        })
+      const job = await request()
       await refresh()
       await selectJob(job.id)
+      // A short clip can finish before the initial metadata round-trip; it still
+      // needs the same explicit completion acknowledgement as a longer job.
+      if (detail.value?.id === job.id && detail.value.status === 'succeeded') reviewPendingId.value = job.id
+      else {
+        const terminal = snapshot.value?.jobs.find(item => item.id === job.id)
+        const fallback = terminal && successfulFallback(snapshot.value?.jobs ?? [], terminal)
+        if (fallback) await selectJob(fallback.id)
+      }
       return true
     }
     catch (cause) {
-      error.value = uploadController.signal.aborted ? 'Upload cancelled. Refresh history before trying again.' : workspaceError(cause)
+      const duplicate = (cause as { data?: { data?: { retryJobId?: unknown } } })?.data?.data?.retryJobId
+      if (typeof duplicate === 'string') retryRequestedId.value = duplicate
+      else error.value = uploadController.signal.aborted ? 'Upload cancelled. Refresh recordings before trying again.' : workspaceError(cause)
       await refresh()
       return false
     }
     finally { busy.value = false; uploading.value = false; uploadController = undefined }
+  }
+
+  function transcribe(source: File | string): Promise<boolean> {
+    return startJob(() => typeof source === 'string'
+      ? $fetch<TranscriptionJob>('/api/transcriptions', { method: 'POST', body: { sourceName: source } })
+      : $fetch<TranscriptionJob>(`/api/transcriptions/upload?name=${encodeURIComponent(source.name)}`, {
+        method: 'POST', body: source, headers: { 'Content-Type': 'application/octet-stream' }, signal: uploadController?.signal,
+      }), typeof source !== 'string')
+  }
+  function retry(id: string): Promise<boolean> {
+    return startJob(() => $fetch<TranscriptionJob>(`/api/transcriptions/${encodeURIComponent(id)}/retry`, { method: 'POST', body: {} }))
+  }
+  function requestRetry(id: string | null) { retryRequestedId.value = id }
+  async function acknowledgeCompletion() {
+    const id = reviewPendingId.value
+    if (!id) return
+    if (detail.value?.id === id && detail.value.result) { reviewPendingId.value = null; return }
+    await selectJob(id)
+    if (detail.value?.id === id && detail.value.result) reviewPendingId.value = null
   }
 
   async function cancel() {
@@ -183,5 +228,5 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   return { snapshot, preferences, detail, sourceFiles, hydrated, loading, detailLoading, sourcesLoading, busy,
-    uploading, error, sourceError, activeJob, hydrate, refresh, selectJob, savePreferences, renameSpeaker, loadSources, saveSettings, transcribe, cancel }
+    uploading, error, sourceError, sourceReconnecting, activeJob, progressJob, reviewPendingId, acknowledgeCompletion, retryRequestedId, requestRetry, retry, hydrate, refresh, selectJob, savePreferences, renameSpeaker, loadSources, saveSettings, transcribe, cancel }
 })

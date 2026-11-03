@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { WorkspaceSnapshot } from '../shared/workspace'
+import { processingToggleDefaults } from '../shared/transcriptProcessing'
 
 // Isolated state: production smoke tests must never inspect the owner's recording or run real workers.
 const root = await realpath(await mkdtemp(join(tmpdir(), 'studio-production-')))
@@ -21,7 +22,7 @@ async function waitForReady() {
 }
 try {
   await waitForReady()
-  for (const path of ['/', '/settings']) {
+  for (const path of ['/', '/settings', '/benchmarks']) {
     const page = await fetch(`http://localhost:42077${path}`)
     if (page.status !== 200 || !(await page.text()).includes('Transcription Studio')) throw new Error(`Production page failed: ${path}`)
   }
@@ -35,13 +36,20 @@ try {
   if (workspaceResponse.status !== 200) throw new Error(`Workspace API returned ${workspaceResponse.status}`)
   const workspace = await workspaceResponse.json() as WorkspaceSnapshot
   if (workspace.jobs.length || workspace.activeJobId || workspace.settings.sourceDirectory) throw new Error('Workspace smoke did not use isolated state')
-  const preferences = { selectedJobId: null, copyWithSpeakers: false }
+   if (JSON.stringify(workspace.preferences.transcriptProcessing) !== JSON.stringify(processingToggleDefaults)) throw new Error('Processing defaults must all be false')
+   const preferences = { selectedJobId: null, copyWithSpeakers: false, transcriptProcessing: { ...processingToggleDefaults, disableGrouping: true } }
   const saved = await fetch('http://localhost:42077/api/workspace/preferences', {
     method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:42077' }, body: JSON.stringify(preferences),
   })
   if (!saved.ok) throw new Error(`Workspace preference persistence failed: ${saved.status}`)
   const restored = await fetch('http://localhost:42077/api/workspace').then(response => response.json()) as WorkspaceSnapshot
   if (restored.preferences.copyWithSpeakers !== false) throw new Error('Workspace preferences were not retained')
+  if (restored.preferences.transcriptProcessing?.disableGrouping !== true) throw new Error('Processing switches were not retained')
+  const invalidProcessing = await fetch('http://localhost:42077/api/workspace/preferences', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:42077' },
+    body: JSON.stringify({ ...preferences, transcriptProcessing: { ...preferences.transcriptProcessing, disableGrouping: 'true' } }),
+  })
+  if (invalidProcessing.ok) throw new Error('Invalid processing switch accepted')
   const sourceDirectory = join(root, 'source')
   await mkdir(sourceDirectory)
   await writeFile(join(sourceDirectory, 'synthetic.wav'), 'synthetic audio fixture, never processed')
@@ -67,6 +75,7 @@ try {
   await waitForReady()
   const restarted = await fetch('http://localhost:42077/api/workspace').then(response => response.json()) as WorkspaceSnapshot
   if (restarted.preferences.copyWithSpeakers !== false || restarted.settings.sourceDirectory !== sourceDirectory) throw new Error('SQLite settings/preferences did not survive server restart')
+  if (restarted.preferences.transcriptProcessing?.disableGrouping !== true || restarted.preferences.transcriptProcessing.disableGapBridging !== false) throw new Error('Processing switches did not survive SQLite restart')
   console.log('Production pages/APIs, SQLite restart persistence, source listing, launcher identity, isolated state and JSON/upload origin guards verified.')
 }
 finally {

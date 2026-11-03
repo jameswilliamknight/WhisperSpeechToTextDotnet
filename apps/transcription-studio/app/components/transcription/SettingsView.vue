@@ -2,13 +2,15 @@
 import { shallowRef } from 'vue'
 import LocationSettingsForm from './LocationSettingsForm.vue'
 import CopySettings from './CopySettings.vue'
+import ProcessingSettings from './ProcessingSettings.vue'
 
-const selected = shallowRef<'folders' | 'clipboard'>('folders')
-const tabs = [{ id: 'folders', label: 'Folders' }, { id: 'clipboard', label: 'Clipboard' }] as const
+const tabs = [{ id: 'folders', label: 'Folders' }, { id: 'clipboard', label: 'Clipboard' }, { id: 'processing', label: 'Transcript' }] as const
+const selected = shallowRef<(typeof tabs)[number]['id']>('folders')
 function navigate(event: KeyboardEvent) {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
   event.preventDefault()
-  selected.value = event.key === 'Home' ? 'folders' : event.key === 'End' ? 'clipboard' : selected.value === 'folders' ? 'clipboard' : 'folders'
+  const index = tabs.findIndex(tab => tab.id === selected.value)
+  selected.value = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]!.id
   ;(event.currentTarget as HTMLElement).querySelector<HTMLButtonElement>(`#settings-${selected.value}-tab`)?.focus()
 }
 </script>
@@ -22,6 +24,7 @@ function navigate(event: KeyboardEvent) {
       <!-- Keep panels mounted so switching tabs preserves unsaved folder edits. -->
       <div v-show="selected === 'folders'" id="settings-folders-panel" role="tabpanel" aria-labelledby="settings-folders-tab" tabindex="0" class="p-6"><LocationSettingsForm /></div>
       <div v-show="selected === 'clipboard'" id="settings-clipboard-panel" role="tabpanel" aria-labelledby="settings-clipboard-tab" tabindex="0" class="p-6"><CopySettings /></div>
+      <div v-show="selected === 'processing'" id="settings-processing-panel" role="tabpanel" aria-labelledby="settings-processing-tab" tabindex="0" class="p-6"><ProcessingSettings /></div>
     </div>
   </section>
 </template>

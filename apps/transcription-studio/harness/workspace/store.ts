@@ -1,12 +1,13 @@
 import { Database } from 'bun:sqlite'
 import { chmodSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
-import type { LocationSettings, TranscriptionDetail, WorkspacePreferences } from '../../shared/workspace'
+import type { LocationSettings, TranscriptionDetail, WorkspacePreferences } from '#shared/workspace'
 import type { Fingerprint } from '../source/integrity'
 import { privateDirectory, privateRoot } from '../paths'
 import { defaults } from './locations'
 import { ensureSpeakerMetadata, metadataPath, readSpeakerMetadata, refreshSpeakerExport, validateSpeakerExport, writeSpeakerMetadata } from './metadata'
-import { normaliseSpeakerNames } from '../../shared/speakerNames'
+import { normaliseSpeakerNames } from '#shared/speakerNames'
+import { normaliseProcessingToggles } from '#shared/transcriptProcessing'
 
 export interface JobRecord {
   detail: TranscriptionDetail
@@ -16,6 +17,7 @@ export interface JobRecord {
   audioPath: string
   original?: { path: string; fingerprint: Fingerprint }
   cancelRequested?: boolean
+  sourceKind?: 'directory' | 'upload'
 }
 const preferenceDefaults: WorkspacePreferences = { selectedJobId: null, copyWithSpeakers: true }
 const databasePath = join(privateRoot, 'workspace.sqlite')
@@ -60,7 +62,10 @@ async function writeState(key: string, value: unknown): Promise<void> {
   await use(db => { db.query('INSERT OR REPLACE INTO state (key,value) VALUES (?,?)').run(key, JSON.stringify(value)) })
 }
 export const settings = () => readState('settings', defaults)
-export const preferences = () => readState('preferences', preferenceDefaults)
+export const preferences = async () => {
+  const saved = await readState('preferences', preferenceDefaults)
+  return { ...saved, transcriptProcessing: normaliseProcessingToggles(saved.transcriptProcessing) }
+}
 export const saveSettings = (value: LocationSettings) => writeState('settings', value)
 export const savePreferences = (value: WorkspacePreferences) => writeState('preferences', value)
 
@@ -179,5 +184,26 @@ export async function requestCancel(id: string): Promise<boolean> {
     record.cancelRequested = true
     db.query('UPDATE jobs SET value = ? WHERE id = ?').run(JSON.stringify(record), id)
     return true
+  }).immediate())
+}
+
+/** Explicit, idle-only history maintenance. Never delete audio, outputs or good
+ * results. The caller takes a private SQLite backup while holding admission. */
+export async function removeFailedHistory(): Promise<{ removed: number; retainedSuccessful: number }> {
+  return use(db => db.transaction(() => {
+    const records = db.query<{ value: string }, []>('SELECT value FROM jobs').all().map(row => JSON.parse(row.value) as JobRecord)
+    if (records.some(record => record.detail.status === 'running')) throw new Error('Stop active jobs before cleaning history')
+    const failed = records.filter(record => record.detail.status === 'failed')
+    const retained = records.filter(record => record.detail.status === 'succeeded').sort((a, b) => b.detail.startedAt.localeCompare(a.detail.startedAt))
+    const preference = db.query<{ value: string }, [string]>('SELECT value FROM state WHERE key = ?').get('preferences')
+    if (preference) {
+      const value = JSON.parse(preference.value) as WorkspacePreferences
+      if (failed.some(record => record.detail.id === value.selectedJobId)) {
+        value.selectedJobId = retained[0]?.detail.id ?? null
+        db.query('UPDATE state SET value = ? WHERE key = ?').run(JSON.stringify(value), 'preferences')
+      }
+    }
+    for (const record of failed) db.query('DELETE FROM jobs WHERE id = ?').run(record.detail.id)
+    return { removed: failed.length, retainedSuccessful: retained.length }
   }).immediate())
 }
