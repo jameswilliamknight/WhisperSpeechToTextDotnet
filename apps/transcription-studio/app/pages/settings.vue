@@ -1,7 +1,3 @@
-<script setup lang="ts">
-import SettingsView from '../components/transcription/SettingsView.vue'
-</script>
-
 <template>
-  <SettingsView />
+  <div hidden><!-- StudioScreenCache owns this URL's persistent screen. --></div>
 </template>

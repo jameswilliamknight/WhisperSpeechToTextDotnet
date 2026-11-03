@@ -45,11 +45,22 @@ export function activeTurns(turns: readonly Readonly<SpeakerTurn>[], position: n
 }
 
 export function turnHighlightText(index: number, segments: readonly Readonly<TranscriptSegment>[], turns: readonly Readonly<SpeakerTurn>[], options?: Partial<TranscriptProcessing>): HighlightText {
+  return ownedTurnHighlightText(index, segments, turns, condensedOwners(segments, turns, options))
+}
+
+/** Timeline previews share one ownership pass. Resolving the entire transcript
+ * separately for every turn makes mounting a long recording needlessly quadratic
+ * in its turn count, even before tooltip context is filtered. */
+export function turnHighlightTexts(segments: readonly Readonly<TranscriptSegment>[], turns: readonly Readonly<SpeakerTurn>[], options?: Partial<TranscriptProcessing>): HighlightText[] {
+  const owners = condensedOwners(segments, turns, options)
+  return turns.map((_, index) => ownedTurnHighlightText(index, segments, turns, owners))
+}
+
+function ownedTurnHighlightText(index: number, segments: readonly Readonly<TranscriptSegment>[], turns: readonly Readonly<SpeakerTurn>[], owners: readonly (readonly number[])[]): HighlightText {
   const turn = turns[index]
   if (!turn) return { text: '', ranges: [] }
   // Resolve with the full transcript before selecting tooltip context. Filtering
   // first would remove neighbours and undo corrections visible in passage rows.
-  const owners = condensedOwners(segments, turns, options)
   const selected = segments.flatMap((segment, segmentIndex) => {
     if (segment.start >= turn.end || segment.end <= turn.start) return []
     return !segment.speaker || segment.speaker === turn.speaker || owners[segmentIndex]!.includes(index) ? [segmentIndex] : []

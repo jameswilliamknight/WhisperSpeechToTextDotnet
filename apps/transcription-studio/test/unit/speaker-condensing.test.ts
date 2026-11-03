@@ -55,6 +55,25 @@ test('weak short islands need agreeing source and neighbours; explicit interject
   expect(speakerSegments([{ ...source, speaker: 'B' }], turns).map(value => value.speaker)).toEqual(['A', 'B', 'A'])
 })
 
+test('a short two-speaker overlap tie inside one consistently labelled sentence condenses', () => {
+  const source = segment('You are asked to be the manager.', [[541.47, 541.8], [541.8, 542.18], [542.18, 542.26], [542.26, 542.33], [542.33, 542.43], [542.69, 542.7], [542.7, 543.5]])
+  const turns: SpeakerTurn[] = [
+    { start: 531.251, end: 541.539, speaker: 'A' },
+    { start: 541.911, end: 547.789, speaker: 'A' },
+    { start: 542.291, end: 542.919, speaker: 'B' },
+  ]
+  const original = JSON.stringify({ source, turns })
+  const passages = transcriptPassages([source], 1.5, turns)
+  expect(passages.map(value => [value.speaker, value.text])).toEqual([['A', source.text]])
+  expect(passages.flatMap(value => value.sources.flatMap(alignedWords))).toEqual(alignedWords(source))
+  expect(highlightText(passages[0]!.sources, turns).ranges.every(range => turns[range.turn]!.speaker === 'A')).toBe(true)
+  expect(speakerSegments([source], turns, { condenseUnlabelled: false }).map(value => value.speaker)).toEqual(['A', undefined, 'A'])
+  expect(speakerSegments([{ ...source, speaker: 'B' }], turns).some(value => !value.speaker)).toBe(true)
+  expect(speakerSegments([{ ...source, speaker: undefined }], turns).some(value => !value.speaker)).toBe(true)
+  expect(speakerSegments([source], [...turns, { start: 542.33, end: 542.7, speaker: 'C' }]).some(value => !value.speaker)).toBe(true)
+  expect(JSON.stringify({ source, turns })).toBe(original)
+})
+
 test('long pauses, unbounded fragments and more than three uncertain words stay explicit', () => {
   const long = segment('Alpha beta omega.', [[0, 1], [1.1, 1.4], [4, 5]])
   const turns = [{ start: 0, end: 1, speaker: 'A' }, { start: 4, end: 5, speaker: 'A' }]

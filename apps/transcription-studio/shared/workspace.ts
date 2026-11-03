@@ -11,6 +11,8 @@ export interface WorkspacePreferences {
   selectedJobId: string | null
   copyWithSpeakers: boolean
   transcriptProcessing?: TranscriptProcessingToggles
+  /** Performance opt-out: older saved preferences default to animated playback. */
+  disablePlaybackPulse?: boolean
 }
 
 export interface JobProgress {

@@ -18,7 +18,7 @@ watch(() => props.selectedId, async id => {
 </script>
 
 <template>
-  <section aria-labelledby="recordings-heading" class="scrollbar-area flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-fb-border">
+  <section aria-labelledby="recordings-heading" class="scrollbar-area flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border-2 border-fb-border">
     <header class="flex shrink-0 items-center justify-between gap-2 border-b border-fb-border px-3 py-3"><h2 id="recordings-heading" class="text-sm font-medium">Recordings</h2><slot name="actions" /></header>
     <slot name="input" />
     <p v-if="!configured" class="px-3 py-2 text-xs text-fb-muted">Choose a recordings folder in <NuxtLink to="/settings" class="underline">Settings</NuxtLink>, or choose/drop an audio file above.</p>

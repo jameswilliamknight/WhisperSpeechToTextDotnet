@@ -34,6 +34,8 @@ for (const surface of ['workspace', 'benchmarks'] as const) {
     const folders = page.getByRole('tab', { name: 'Folders', exact: true })
     await folders.focus()
     await folders.press('End')
+    await expect(page.getByRole('tab', { name: 'Playback', exact: true })).toBeFocused()
+    await page.keyboard.press('ArrowLeft')
     await expect(page.getByRole('tab', { name: 'Transcript', exact: true })).toBeFocused()
     const switches = page.getByRole('tabpanel', { name: 'Transcript', exact: true }).getByRole('switch')
     await expect(switches).toHaveCount(5)

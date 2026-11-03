@@ -34,6 +34,8 @@ export function useStudio() {
     } finally {
       loading.value = false
       fetching = false
+      clearTimeout(timer)
+      if (!disposed && snapshot.value?.activeRunId) timer = setTimeout(refresh, 1500)
     }
   }
 
@@ -103,14 +105,9 @@ export function useStudio() {
     }
   }
 
-  async function poll() {
-    await refresh()
-    if (!disposed) timer = setTimeout(poll, snapshot.value?.activeRunId ? 1500 : 5000)
-  }
-
   onMounted(() => {
-    void poll()
-    clock = setInterval(() => { now.value = Date.now() }, 1000)
+    void refresh()
+    clock = setInterval(() => { if (snapshot.value?.activeRunId) now.value = Date.now() }, 1000)
   })
   onUnmounted(() => {
     disposed = true

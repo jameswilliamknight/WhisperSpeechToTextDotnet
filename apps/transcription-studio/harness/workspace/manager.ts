@@ -86,6 +86,7 @@ export async function updatePreferences(input: WorkspacePreferences): Promise<Wo
   if (input.selectedJobId !== null) await store.job(input.selectedJobId)
   const previous = await store.preferences()
   const saved = { selectedJobId: input.selectedJobId, copyWithSpeakers: input.copyWithSpeakers,
+    disablePlaybackPulse: input.disablePlaybackPulse ?? previous.disablePlaybackPulse,
     transcriptProcessing: { ...previous.transcriptProcessing, ...input.transcriptProcessing } }
   await store.savePreferences(saved)
   return saved

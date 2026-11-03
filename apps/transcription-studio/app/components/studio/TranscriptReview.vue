@@ -52,7 +52,7 @@ function saveSpeakerName(name: string) {
 </script>
 
 <template>
-  <section aria-labelledby="review-heading" class="scrollbar-area min-w-0 overflow-hidden rounded-md border border-fb-border">
+  <section aria-labelledby="review-heading" class="scrollbar-area min-w-0 overflow-hidden rounded-md border-2 border-fb-border">
     <header v-if="!run?.result" class="border-b border-fb-border px-5 py-3">
       <h2 id="review-heading" class="text-base font-medium">Transcript &amp; speakers</h2>
     </header>
@@ -71,7 +71,8 @@ function saveSpeakerName(name: string) {
         </template>
       </SpeakerTimeline>
       <ol v-if="passages.length" class="hover-scrollbar max-h-[34rem] divide-y divide-fb-border overflow-y-auto pr-2 [scrollbar-gutter:stable]" aria-label="Transcript segments">
-        <li v-for="(segment, index) in passages" :key="index" :style="speakerColor(segment.speaker, speakers)" class="grid gap-3 px-5 py-5 sm:grid-cols-[9rem_1fr]">
+        <!-- Playback ticks do not change transcript controls between turn boundaries. -->
+        <li v-for="(segment, index) in passages" :key="index" v-memo="[segment, active, speakers, labels, playbackAvailable]" :style="speakerColor(segment.speaker, speakers)" class="grid gap-3 px-5 py-5 sm:grid-cols-[9rem_1fr]">
           <div><UiButton variant="naked" size="sm" class="cursor-default px-0 font-mono text-xs" :disabled="!playbackAvailable" :aria-label="`Seek to ${timestamp(segment.start)}`" @click="seek(segment.start)">{{ timestamp(segment.start) }} – {{ timestamp(segment.end) }}</UiButton><SpeakerName v-if="segment.speaker" class="mt-1 text-xs" :name="speakerName(segment.speaker)" @edit="editSpeaker(segment.speaker)" /><p v-else class="mt-1 text-xs text-fb-muted">Unlabelled</p></div>
           <p class="whitespace-pre-wrap break-words text-sm leading-7"><HighlightedTranscriptText :content="segment.content" :turns="turns" :speakers="speakers" :active="active" /></p>
         </li>

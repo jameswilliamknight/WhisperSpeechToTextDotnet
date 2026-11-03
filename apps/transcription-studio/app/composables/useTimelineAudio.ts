@@ -1,6 +1,8 @@
 import { computed, nextTick, onMounted, onScopeDispose, readonly, shallowRef, watch } from 'vue'
 import type { Ref } from 'vue'
 import { usePlaybackPositionStore } from '~/stores/playbackPosition'
+import { useScreenActivity } from './useScreenActivity'
+import { usePlaybackResume } from './usePlaybackResume'
 
 interface TimelineAudioOptions {
   audio: Readonly<Ref<HTMLAudioElement | null>>
@@ -12,6 +14,7 @@ interface TimelineAudioOptions {
 /** Keep timeline controls and transcript timestamp links on the same media clock. */
 export function useTimelineAudio({ audio, source, identity, positionKey }: TimelineAudioOptions) {
   const positions = usePlaybackPositionStore()
+  const active = useScreenActivity()
   const currentTime = shallowRef(0)
   const duration = shallowRef(0)
   const playing = shallowRef(false)
@@ -23,7 +26,11 @@ export function useTimelineAudio({ audio, source, identity, positionKey }: Timel
   let activePositionKey: string | undefined
   let positionReady = false
   let resumePlaying = false
-  let autoResuming = false
+  const resume = usePlaybackResume({
+    media: () => audio.value,
+    wanted: () => active.value && positionReady && resumePlaying && audioAvailable.value,
+    attempt: play,
+  })
 
   function remember() {
     if (activePositionKey && positionReady) positions.remember(activePositionKey, currentTime.value, resumePlaying)
@@ -54,13 +61,14 @@ export function useTimelineAudio({ audio, source, identity, positionKey }: Timel
   function syncPlayback() {
     const element = audio.value
     playing.value = Boolean(element && !element.paused && !element.ended)
-    if (positionReady && !autoResuming) resumePlaying = playing.value
+    if (positionReady && !resume.pending.value && active.value) resumePlaying = playing.value
     stopFrame()
     syncTime()
     if (playing.value) frame = requestAnimationFrame(animate)
   }
 
   function fail() {
+    resume.stop()
     audio.value?.pause()
     audioError.value = true
     playing.value = false
@@ -95,17 +103,16 @@ export function useTimelineAudio({ audio, source, identity, positionKey }: Timel
       pendingSeek ??= saved.seconds
       resumePlaying = saved.playing
       positionReady = true
-      autoResuming = saved.playing
       if (pendingSeek !== undefined) seek(pendingSeek)
-      if (saved.playing) void play(true)
+      if (saved.playing && active.value) resume.start()
       return
     }
     if (pendingSeek !== undefined) seek(pendingSeek)
   }
 
-  async function play(automatic = false) {
+  async function play() {
     const element = audio.value
-    if (!element || !audioAvailable.value) return
+    if (!element || !audioAvailable.value || !active.value) return
     resumePlaying = true
     const requestGeneration = generation
     try {
@@ -116,27 +123,40 @@ export function useTimelineAudio({ audio, source, identity, positionKey }: Timel
       if (error instanceof DOMException && error.name === 'AbortError') return
       // Browser autoplay policy is not a broken audio source. Preserve resume
       // intent and the restored position, leaving Play available for a gesture.
-      if (error instanceof DOMException && error.name === 'NotAllowedError') return
+      if (error instanceof DOMException && error.name === 'NotAllowedError') { resume.stop(); return }
       if (generation === requestGeneration && audio.value === element) fail()
     }
     finally {
-      if (automatic && generation === requestGeneration) autoResuming = false
       remember()
     }
   }
 
   function togglePlayback() {
     const element = audio.value
-    if (!element || !audioAvailable.value) return
+    if (!element || !audioAvailable.value || !active.value) return
+    resume.stop()
     if (!element.paused) { resumePlaying = false; element.pause(); flushPosition(); return }
     return play()
   }
+
+  watch(active, visible => {
+    if (!visible) {
+      // Preserve playing intent while suspending an inactive screen. Warmup
+      // and navigation must never create hidden autoplay or two media clocks.
+      flushPosition()
+      resume.stop()
+      audio.value?.pause()
+      stopFrame()
+      playing.value = false
+    }
+    else if (positionReady && resumePlaying) resume.start()
+  }, { flush: 'sync' })
 
   watch([source, identity, positionKey], () => {
     flushPosition()
     positionReady = false
     activePositionKey = undefined
-    autoResuming = false
+    resume.stop()
     generation++
     audio.value?.pause()
     if (audio.value?.readyState) audio.value.currentTime = 0
@@ -171,7 +191,7 @@ export function useTimelineAudio({ audio, source, identity, positionKey }: Timel
       positionReady = false
       activePositionKey = undefined
       pendingSeek = undefined
-      autoResuming = false
+      resume.stop()
       generation++
       for (const [event, listener] of Object.entries(listeners)) element.removeEventListener(event, listener)
       element.pause()

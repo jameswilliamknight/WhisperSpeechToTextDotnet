@@ -1,9 +1,11 @@
 import { onMounted, onScopeDispose } from 'vue'
+import { useScreenActivity } from './useScreenActivity'
 
 /** Playback owns Space even on focused buttons; editing and modal handling remain native. */
 export function usePlaybackShortcut(available: () => boolean, toggle: () => void | Promise<void>) {
+  const active = useScreenActivity()
   function handleSpace(event: KeyboardEvent) {
-    if (event.code !== 'Space' || event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    if (!active.value || event.code !== 'Space' || event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     const target = event.target instanceof Element ? event.target : null
     if (target?.closest('textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], [role="alertdialog"]')) return
     const input = target?.closest('input')

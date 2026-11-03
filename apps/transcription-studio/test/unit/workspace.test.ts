@@ -10,6 +10,8 @@ test('settings/preferences persist across processes, source is opt-in, database 
       await manager.updatePreferences({selectedJobId:null,copyWithSpeakers:false});
       const switches=(await store.preferences()).transcriptProcessing;
       assert.equal(Object.values(switches).every(value=>value===false),true);
+      assert.equal((await store.preferences()).disablePlaybackPulse,false);
+      await manager.updatePreferences({selectedJobId:null,copyWithSpeakers:false,disablePlaybackPulse:true});
       await manager.updatePreferences({selectedJobId:null,copyWithSpeakers:false,transcriptProcessing:{...switches,disableGrouping:true}});
       await manager.updatePreferences({selectedJobId:null,copyWithSpeakers:false});
       await manager.updateSettings(await store.settings());
@@ -19,7 +21,7 @@ test('settings/preferences persist across processes, source is opt-in, database 
       assert.equal((await lstat(join(root,'.local/workspace.sqlite'))).mode & 0o777,0o600);
       assert.equal((await lstat(join(root,'.local'))).mode & 0o777,0o700);
     `)).toEqual({ code: 0, output: '' })
-    expect(await script(f.root, `assert.equal((await store.preferences()).copyWithSpeakers,false);assert.equal((await store.preferences()).transcriptProcessing.disableGrouping,true);assert.equal((await store.preferences()).transcriptProcessing.disableGapBridging,false);assert.equal((await store.settings()).sourceDirectory,'');`)).toEqual({ code: 0, output: '' })
+    expect(await script(f.root, `assert.equal((await store.preferences()).disablePlaybackPulse,true);assert.equal((await store.preferences()).copyWithSpeakers,false);assert.equal((await store.preferences()).transcriptProcessing.disableGrouping,true);assert.equal((await store.preferences()).transcriptProcessing.disableGapBridging,false);assert.equal((await store.settings()).sourceDirectory,'');`)).toEqual({ code: 0, output: '' })
   }
   finally { await f.cleanup() }
 })

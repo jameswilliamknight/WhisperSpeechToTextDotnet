@@ -6,6 +6,7 @@
 - Do not spend time implementing or testing mobile layouts or mobile viewport sizes unless explicitly requested.
 - Scrollbars should be hidden until the pointer hovers over their containing area/column, then fade in/out over approximately 200ms. Reserve a stable gutter and comfortable content spacing so visibility never shifts layout. Keep native wheel, keyboard and thumb-drag behaviour; disable the fade for reduced-motion preferences. Reuse the studio's shared `scrollbar-area` / `hover-scrollbar` styles instead of per-component implementations.
 - Do not turn ARIA selection/state or pointer/modal focus restoration into bright outlines around rows, lists or panels. Preserve ARIA semantics and keyboard accessibility, using a subtle background/underline on the actual focused control instead of a large blue outline. Progress panels use neutral borders; changing timers/percentages use tabular numerals in reserved-width slots to avoid layout movement.
+- Do not introduce layout shifts for loading, status, error, or incidental informational text. Never insert/remove a text banner that pushes the surrounding interface around (for example, “Loading local workspace”). Use reserved geometry, an existing status slot, or a non-obstructive overlay; retain accessible live-region feedback where useful without changing content placement.
 
 ## Imports and module boundaries
 

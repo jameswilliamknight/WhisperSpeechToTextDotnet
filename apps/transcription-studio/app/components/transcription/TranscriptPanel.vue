@@ -105,7 +105,7 @@ async function copy() {
         </SpeakerTimeline>
     </TranscriptTimelineFrame>
     <aside class="col-start-1 row-start-2 flex min-h-0 flex-col" aria-label="Audio files and history"><slot name="sidebar" /></aside>
-    <section aria-labelledby="transcript-heading" class="scrollbar-area relative col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-fb-border">
+    <section aria-labelledby="transcript-heading" class="scrollbar-area relative col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border-2 border-fb-border">
       <h2 id="transcript-heading" class="sr-only">Transcript</h2>
       <p v-if="progressVisible" role="status" class="flex-1 p-8 text-sm text-fb-muted">{{ progressMessage ?? 'Transcribing… The transcript will be available when processing finishes.' }}</p>
       <p v-else-if="loading" role="status" class="flex-1 p-8 text-sm text-fb-muted">Loading transcript…</p>
@@ -113,7 +113,8 @@ async function copy() {
       <div v-else-if="!job.result" class="flex-1 space-y-2 p-8 text-sm text-fb-muted"><p>{{ job.status === 'running' ? 'Transcribing locally…' : 'No transcript available.' }}</p><p v-if="job.error" role="alert" class="text-fb-danger">{{ job.error }}</p><p v-if="job.status !== 'running'" class="capitalize">{{ job.status }}</p></div>
       <template v-else>
         <ol v-if="passages.length" ref="passageList" aria-label="Transcript passages" tabindex="0" class="hover-scrollbar min-h-[20rem] flex-1 divide-y divide-fb-border overflow-y-auto overscroll-contain pr-2 [scrollbar-gutter:stable] focus-visible:bg-fb-surface-muted/10 focus-visible:outline-none" @wheel.passive="transcriptFollow.onWheel" @pointerdown="transcriptFollow.onPointerDown" @keydown="transcriptFollow.onKeydown">
-          <li v-for="(passage, index) in passages" :key="index" :data-passage-index="index" :aria-current="index === transcriptFollow.activeIndex.value ? 'true' : undefined" :style="speakerColor(passage.speaker, speakers)" class="grid grid-cols-[8rem_1fr] gap-4 px-5 py-4 transition-colors motion-reduce:transition-none" :class="{ 'bg-fb-primary-soft/20': index === transcriptFollow.activeIndex.value }">
+          <!-- Keep the media clock from rebuilding a long transcript each frame. -->
+          <li v-for="(passage, index) in passages" :key="index" v-memo="[passage, index === transcriptFollow.activeIndex.value, active, speakers, labels, audioAvailable]" :data-passage-index="index" :aria-current="index === transcriptFollow.activeIndex.value ? 'true' : undefined" :style="speakerColor(passage.speaker, speakers)" class="grid grid-cols-[8rem_1fr] gap-4 px-5 py-4 transition-colors motion-reduce:transition-none" :class="{ 'bg-fb-primary-soft/20': index === transcriptFollow.activeIndex.value }">
             <div>
               <span class="group/timestamp flex items-center gap-2.5">
                 <UiButton variant="naked" size="sm" class="px-0 font-mono text-xs" :disabled="!audioAvailable" :aria-label="`Seek to ${timestamp(passage.start)}`" @click="seekAndFollow(passage.start)">{{ timestamp(passage.start) }}</UiButton>

@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useWorkspaceStore } from './stores/workspace'
 import ConnectionStatus from '~/components/ConnectionStatus.vue'
+import StudioScreenCache from '~/components/StudioScreenCache.vue'
 
 const workspace = useWorkspaceStore()
 let timer: ReturnType<typeof setInterval> | undefined
@@ -26,7 +27,7 @@ useHead({ title: 'Transcription Studio', htmlAttrs: { class: 'dark', lang: 'en-N
       </div>
     </header>
     <main class="scrollbar-area hover-scrollbar mx-auto flex min-h-0 w-full max-w-screen-2xl flex-1 flex-col overflow-y-auto px-8 py-8">
-      <div class="flex min-h-0 flex-1 flex-col"><NuxtPage /></div>
+      <div class="flex min-h-0 flex-1 flex-col"><StudioScreenCache /><NuxtPage /></div>
     </main>
   </div>
 </template>

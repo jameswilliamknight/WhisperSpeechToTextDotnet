@@ -1,5 +1,6 @@
 import { onMounted, onScopeDispose, shallowRef, watch } from 'vue'
 import type { Ref } from 'vue'
+import { useScreenActivity } from './useScreenActivity'
 
 interface TimelineFollowOptions {
   viewport: Readonly<Ref<HTMLElement | null>>
@@ -13,8 +14,22 @@ interface TimelineFollowOptions {
 /** Follow the media clock, except while the user owns the seek gesture. */
 export function useTimelineFollow({ viewport, canvas, leadingOverlay, expanded, position, duration }: TimelineFollowOptions) {
   const dragging = shallowRef(false)
+  const active = useScreenActivity()
   let observer: ResizeObserver | undefined
   let panFrame: number | undefined
+  let fractionalShift = 0
+
+  // Some browser/display combinations round scrollLeft to device pixels. Keep
+  // native scrolling and translate only its discarded fraction: no smoothing
+  // lag, extra media clock, or competing FLIP animation. Independent translate
+  // also composes with AutoAnimate's transform during expand/collapse.
+  function scrollTo(target: number) {
+    const view = viewport.value, content = canvas.value
+    if (!view || !content) return
+    view.scrollLeft = target
+    fractionalShift = view.scrollLeft - target
+    content.style.translate = `${fractionalShift}px 0`
+  }
 
   function targetScroll() {
     const view = viewport.value
@@ -28,7 +43,7 @@ export function useTimelineFollow({ viewport, canvas, leadingOverlay, expanded, 
     const railBox = rail.getBoundingClientRect()
     // Include the viewport's padded rail origin. Canvas-local coordinates miss
     // that gutter and leave the playhead consistently off-centre by 8px.
-    const x = view.scrollLeft + railBox.left - view.getBoundingClientRect().left + railBox.width * position.value / duration.value
+    const x = view.scrollLeft + railBox.left - fractionalShift - view.getBoundingClientRect().left + railBox.width * position.value / duration.value
     // A wider viewport reveals the *same* turns beneath the fixed label gutter.
     // Centre playback in the usable rail, not behind those non-interactive labels.
     const covered = Math.max(0, (leadingOverlay?.value?.getBoundingClientRect().right ?? view.getBoundingClientRect().left) - view.getBoundingClientRect().left)
@@ -36,8 +51,8 @@ export function useTimelineFollow({ viewport, canvas, leadingOverlay, expanded, 
   }
 
   function center() {
-    if (dragging.value || panFrame !== undefined || !viewport.value) return
-    viewport.value.scrollLeft = targetScroll()
+    if (!active.value || dragging.value || panFrame !== undefined || !viewport.value?.isConnected) return
+    scrollTo(targetScroll())
   }
 
   function cancelPan() {
@@ -53,14 +68,14 @@ export function useTimelineFollow({ viewport, canvas, leadingOverlay, expanded, 
       center()
       return
     }
-    const from = view.scrollLeft
+    const from = view.scrollLeft - fractionalShift
     const started = performance.now()
     // Own the scroll during release easing so media-clock updates cannot snap
     // over the animation. Recompute the destination as playback continues.
     const tick = (now: number) => {
       const fraction = Math.min(1, (now - started) / 300)
       const eased = 1 - (1 - fraction) ** 3
-      view.scrollLeft = from + (targetScroll() - from) * eased
+      scrollTo(from + (targetScroll() - from) * eased)
       panFrame = fraction < 1 ? requestAnimationFrame(tick) : undefined
     }
     panFrame = requestAnimationFrame(tick)

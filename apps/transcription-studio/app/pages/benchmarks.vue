@@ -1,7 +1,3 @@
-<script setup lang="ts">
-import StudioWorkbench from '../components/studio/StudioWorkbench.vue'
-</script>
-
 <template>
-  <StudioWorkbench />
+  <div hidden><!-- StudioScreenCache owns this URL's persistent screen. --></div>
 </template>

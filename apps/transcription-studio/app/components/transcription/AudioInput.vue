@@ -46,7 +46,7 @@ function choose(event: Event) {
 </script>
 
 <template>
-  <section aria-labelledby="audio-heading" class="relative shrink-0 p-3" :class="embedded ? 'border-b border-fb-border' : 'rounded-md border border-fb-border'" @dragenter.prevent="enter($event, disabled)" @dragover.prevent="($event.dataTransfer && ($event.dataTransfer.dropEffect = disabled ? 'none' : 'copy'))" @dragleave.prevent="leave" @drop.prevent="!disabled && drop($event)">
+  <section aria-labelledby="audio-heading" class="relative shrink-0 p-3" :class="embedded ? 'border-b border-fb-border' : 'rounded-md border-2 border-fb-border'" @dragenter.prevent="enter($event, disabled)" @dragover.prevent="($event.dataTransfer && ($event.dataTransfer.dropEffect = disabled ? 'none' : 'copy'))" @dragleave.prevent="leave" @drop.prevent="!disabled && drop($event)">
     <div class="flex flex-wrap items-center gap-3" :class="{ 'invisible': dragging }">
       <h2 id="audio-heading" class="mr-auto text-sm font-medium">Audio file</h2>
       <input id="audio-file" ref="input" type="file" aria-label="Choose audio file" :accept="extensions" :disabled="disabled" class="sr-only" tabindex="-1" @change="choose">

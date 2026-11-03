@@ -25,6 +25,7 @@ export async function mockRecordings(page: Page) {
   }
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname
+    if (path === '/api/studio') return route.fulfill({ json: { source: { prepared: false }, backends: [], runs: [], activeRunId: null } })
     if (path === '/api/workspace') return route.fulfill({ json: state })
     if (path === '/api/workspace/preferences') { state.preferences = route.request().postDataJSON(); return route.fulfill({ json: state.preferences }) }
     if (path === '/api/source-files') return route.fulfill({ json: { files } })

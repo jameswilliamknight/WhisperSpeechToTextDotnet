@@ -1,7 +1,3 @@
-<script setup lang="ts">
-import WorkspaceView from '../components/transcription/WorkspaceView.vue'
-</script>
-
 <template>
-  <WorkspaceView />
+  <div hidden><!-- StudioScreenCache owns this URL's persistent screen. --></div>
 </template>

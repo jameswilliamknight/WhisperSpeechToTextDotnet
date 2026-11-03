@@ -27,7 +27,7 @@ const statusClasses: Record<BenchmarkRun['status'], string> = {
 </script>
 
 <template>
-  <section aria-labelledby="runs-heading" class="min-w-0 overflow-hidden rounded-md border border-fb-border">
+  <section aria-labelledby="runs-heading" class="min-w-0 overflow-hidden rounded-md border-2 border-fb-border">
     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-fb-border px-5 py-4">
       <h2 id="runs-heading" class="text-base font-medium">Benchmark runs</h2>
       <span class="text-xs text-fb-muted">{{ runs.length }} {{ runs.length === 1 ? 'run' : 'runs' }}</span>

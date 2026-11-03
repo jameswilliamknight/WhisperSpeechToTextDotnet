@@ -64,7 +64,7 @@ async function writeState(key: string, value: unknown): Promise<void> {
 export const settings = () => readState('settings', defaults)
 export const preferences = async () => {
   const saved = await readState('preferences', preferenceDefaults)
-  return { ...saved, transcriptProcessing: normaliseProcessingToggles(saved.transcriptProcessing) }
+  return { ...saved, transcriptProcessing: normaliseProcessingToggles(saved.transcriptProcessing), disablePlaybackPulse: saved.disablePlaybackPulse === true }
 }
 export const saveSettings = (value: LocationSettings) => writeState('settings', value)
 export const savePreferences = (value: WorkspacePreferences) => writeState('preferences', value)

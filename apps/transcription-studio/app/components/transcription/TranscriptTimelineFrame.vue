@@ -32,7 +32,7 @@ onScopeDispose(() => observer?.disconnect())
 </script>
 
 <template>
-  <div ref="frame" data-testid="transcript-timeline-frame" class="relative col-span-2 col-start-1 row-start-1 grid overflow-hidden rounded-md border border-fb-border" :style="{ minHeight: `${height}px` }">
+  <div ref="frame" data-testid="transcript-timeline-frame" class="relative col-span-2 col-start-1 row-start-1 grid overflow-hidden rounded-md border-2 border-fb-border" :style="{ minHeight: `${height}px` }">
     <h2 v-if="!progress" class="pointer-events-none absolute top-3 left-5 z-10 flex h-8 items-center font-medium">Timeline</h2>
     <div v-if="progress" class="col-start-1 row-start-1 min-w-0 self-stretch"><slot name="progress" /></div>
     <Transition v-else enter-active-class="transition-opacity duration-300 motion-reduce:transition-none" leave-active-class="transition-opacity duration-200 motion-reduce:transition-none" enter-from-class="opacity-0" leave-to-class="opacity-0">

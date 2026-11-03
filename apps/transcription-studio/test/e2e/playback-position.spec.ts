@@ -58,3 +58,25 @@ test('autoplay refusal preserves the restored position without reporting an audi
   await expect(page.getByRole('button', { name: 'Play audio', exact: true })).toBeEnabled()
   await expect(page.getByText('Audio could not be loaded.', { exact: true })).toHaveCount(0)
 })
+
+test('refresh retries a transient startup interruption without losing playing intent', async ({ page }) => {
+  await page.addInitScript(() => {
+    const play = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function () {
+      if (sessionStorage.getItem('interrupt-resume') === 'once') {
+        sessionStorage.removeItem('interrupt-resume')
+        this.dispatchEvent(new Event('pause'))
+        return Promise.reject(new DOMException('Startup interrupted', 'AbortError'))
+      }
+      return play.call(this)
+    }
+  })
+  const unexpected = await mockReview(page, 'workspace')
+  await page.getByRole('button', { name: 'Play audio', exact: true }).click()
+  await expect.poll(() => page.locator('audio').evaluate(element => (element as HTMLAudioElement).currentTime)).toBeGreaterThan(0.2)
+  await page.evaluate(() => sessionStorage.setItem('interrupt-resume', 'once'))
+  await page.reload()
+  await expect.poll(() => page.locator('audio').evaluate(element => !(element as HTMLAudioElement).paused)).toBe(true)
+  await expect.poll(() => page.locator('audio').evaluate(element => (element as HTMLAudioElement).currentTime)).toBeGreaterThan(0.5)
+  expect(unexpected).toEqual([])
+})

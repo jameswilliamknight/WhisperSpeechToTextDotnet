@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
-import { shallowRef } from 'vue'
+import { shallowReactive, shallowRef } from 'vue'
 
 const storageKey = 'studio.timeline-view'
 
 export const useTimelineViewStore = defineStore('timeline-view', () => {
   const identity = shallowRef<string | null>(null)
   const expanded = shallowRef(false)
+  const cachedViews = shallowReactive(new Map<string, boolean>())
   let restored = false
 
   function persist() {
@@ -27,14 +28,16 @@ export const useTimelineViewStore = defineStore('timeline-view', () => {
     }
     // Persist only the latest selection, rather than accumulating per-recording state.
     if (identity.value !== next) {
+      if (identity.value) cachedViews.set(identity.value, expanded.value)
       identity.value = next
-      expanded.value = false
+      expanded.value = cachedViews.get(next) ?? false
     }
     persist()
   }
 
   function toggle() { expanded.value = !expanded.value; persist() }
-  function reset() { identity.value = null; expanded.value = false; persist() }
+  function reset() { cachedViews.clear(); identity.value = null; expanded.value = false; persist() }
+  function expandedFor(key: string) { return key === identity.value ? expanded.value : cachedViews.get(key) ?? false }
 
-  return { expanded, select, toggle, reset }
+  return { expanded, expandedFor, select, toggle, reset }
 })

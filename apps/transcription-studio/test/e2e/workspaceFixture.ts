@@ -24,6 +24,7 @@ export async function mockWorkspace(page: Page, snapshot: WorkspaceSnapshot) {
   // Fail closed: unmocked calls must never touch the owner's real workspace.
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url())
+    if (url.pathname === '/api/studio') { await route.fulfill({ json: { source: { prepared: false }, backends: [], runs: [], activeRunId: null } }); return }
     if (url.pathname === '/api/workspace') { requests.metadata++; await route.fulfill({ json: snapshot }); return }
     if (url.pathname === '/api/workspace/preferences') { snapshot.preferences = request.postDataJSON(); await route.fulfill({ json: snapshot.preferences }); return }
     if (url.pathname === '/api/workspace/settings') { snapshot.settings = request.postDataJSON(); await route.fulfill({ json: snapshot.settings }); return }

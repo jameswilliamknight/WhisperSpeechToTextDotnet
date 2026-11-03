@@ -46,7 +46,6 @@ async function confirmRetry() {
   <div class="flex h-full min-h-[52rem] flex-col gap-4">
     <h1 class="sr-only">Transcribe</h1>
     <UiNotice v-if="workspace.error" tone="danger" title="Workspace error">{{ workspace.error }} <UiButton v-if="!workspace.snapshot" size="sm" :disabled="workspace.loading" @click="workspace.hydrate()">Retry</UiButton></UiNotice>
-    <p v-if="workspace.loading" role="status" class="p-8 text-sm text-fb-muted">Loading local workspace…</p>
     <template v-if="workspace.snapshot">
       <UiNotice v-if="!workspace.snapshot.engine.available" tone="warning" title="Whisper unavailable">{{ workspace.snapshot.engine.reason || 'The local Whisper engine is not configured.' }}</UiNotice>
       <TranscriptPanel :job="showProgress ? null : workspace.detail" :loading="!showProgress && workspace.detailLoading" :progress-visible="showProgress" :progress-message="workspace.reviewPendingId ? 'Transcription complete. Choose View transcript above to review it.' : 'Transcribing… The previous result is kept safely but hidden while processing.'" :with-speakers="workspace.preferences.copyWithSpeakers" @rename-speaker="workspace.renameSpeaker">

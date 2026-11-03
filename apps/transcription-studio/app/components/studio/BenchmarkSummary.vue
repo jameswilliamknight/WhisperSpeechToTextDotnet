@@ -10,7 +10,7 @@ const summaries = computed(() => summariseRuns(props.runs))
 </script>
 
 <template>
-  <section v-if="summaries.length" class="rounded-md border border-fb-border p-5" aria-labelledby="summary-heading">
+  <section v-if="summaries.length" class="rounded-md border-2 border-fb-border p-5" aria-labelledby="summary-heading">
     <h2 id="summary-heading" class="mb-4 text-base font-medium">Full-recording summary</h2>
     <div class="grid gap-4 sm:grid-cols-3">
       <dl v-for="summary in summaries" :key="summary.key" class="space-y-2">

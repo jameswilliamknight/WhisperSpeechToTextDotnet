@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
 import type { BenchmarkRun, StudioSnapshot } from '../../shared/studio'
+import { fixture, mockWorkspace } from './workspaceFixture'
+
+test.beforeEach(async ({ page }) => { await mockWorkspace(page, fixture()) })
 
 const fixtureRun: BenchmarkRun = {
   id: '00000000-0000-0000-0000-000000000001', backend: 'nemo', preset: 'smoke',

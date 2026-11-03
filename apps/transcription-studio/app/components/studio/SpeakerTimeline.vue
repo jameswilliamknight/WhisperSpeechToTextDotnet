@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, useTemplateRef, watch } from 'vue'
+import { computed, useTemplateRef, watch } from 'vue'
 import { useTimelineViewStore } from '~/stores/timelineView'
 import { useAutoAnimate } from '@formkit/auto-animate/vue'
 import { ChevronsLeftRight, ChevronsRightLeft, Pause, Play } from 'lucide-vue-next'
 import UiIconButton from '#layers/freebore-ui/app/components/ui/UiIconButton.vue'
 import type { SpeakerTurn, TranscriptSegment } from '#shared/studio'
-import { turnHighlightText } from '~/utils/transcriptHighlight'
+import { turnHighlightTexts } from '~/utils/transcriptHighlight'
 import TimelineTurnTooltip from './TimelineTurnTooltip.vue'
 import { useActiveTurns } from '~/composables/useActiveTurns'
 import { speakerLabels } from '#shared/speakerNames'
@@ -15,6 +15,8 @@ import SpeakerName from '~/components/speakers/SpeakerName.vue'
 import { useTimelineFollow } from '~/composables/useTimelineFollow'
 import { useTimelineOverflow } from '~/composables/useTimelineOverflow'
 import { useTranscriptProcessing } from '~/composables/useTranscriptProcessing'
+import { useScreenActivity } from '~/composables/useScreenActivity'
+import { useWorkspaceStore } from '~/stores/workspace'
 
 const props = defineProps<{
   identity: string
@@ -29,9 +31,10 @@ const props = defineProps<{
 const emit = defineEmits<{ seek: [seconds: number]; renameSpeaker: [speakerId: string]; togglePlayback: [] }>()
 const timelineView = useTimelineViewStore()
 const processing = useTranscriptProcessing()
-const expanded = computed(() => timelineView.expanded)
-onMounted(() => timelineView.select(props.identity))
-watch(() => props.identity, identity => timelineView.select(identity))
+const workspace = useWorkspaceStore()
+const screenActive = useScreenActivity()
+const expanded = computed(() => timelineView.expandedFor(props.identity))
+watch([screenActive, () => props.identity], ([active, identity]) => { if (active) timelineView.select(identity) }, { immediate: true })
 const [animationParent] = useAutoAnimate<HTMLElement>({ duration: 300 })
 const speakers = computed(() => [...new Set(props.turns.map(turn => turn.speaker))])
 const labels = computed(() => speakerLabels(speakers.value, props.speakerNames))
@@ -55,11 +58,12 @@ function seekAt(event: MouseEvent) {
   emit('seek', Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)) * length.value)
 }
 // Group the display, not the underlying turns: overlap data and seek targets stay intact.
+const previews = computed(() => turnHighlightTexts(props.segments ?? [], props.turns, processing.value))
 const lanes = computed(() => speakers.value.map((speaker, index) => ({
   speaker, speakerNumber: index + 1,
   turns: props.turns.map((turn, index) => ({ turn, index })).filter(({ turn }) => turn.speaker === speaker).map(({ turn, index: turnIndex }) => ({
     ...turn, index: turnIndex,
-    content: turnHighlightText(turnIndex, props.segments ?? [], props.turns, processing.value),
+    content: previews.value[turnIndex]!,
     left: `${Math.max(0, turn.start) / length.value * 100}%`,
     width: `${Math.max(0.1, turn.end - turn.start) / length.value * 100}%`,
   })),
@@ -70,8 +74,8 @@ const lanes = computed(() => speakers.value.map((speaker, index) => ({
   <section aria-labelledby="timeline-heading" class="scrollbar-area relative isolate min-w-0 border-b border-fb-border px-5 py-3">
     <!-- Keep the pulse running behind an independent fade. Pausing during a
          pulse must fade from its current colour rather than snap to a keyframe. -->
-    <div aria-hidden="true" data-testid="timeline-playing-background" class="pointer-events-none absolute inset-0 -z-10 transition-opacity duration-700 ease-in-out motion-reduce:transition-none" :class="playing ? 'opacity-100' : 'opacity-0'">
-      <div class="h-full w-full animate-pulse bg-neutral-950 [animation-duration:4s] motion-reduce:animate-none" />
+    <div aria-hidden="true" data-testid="timeline-playing-background" class="pointer-events-none absolute inset-0 -z-10 transition-opacity duration-1000 ease-in-out motion-reduce:transition-none" :class="playing ? 'opacity-100' : 'opacity-0'">
+      <div class="h-full w-full" :class="workspace.preferences.disablePlaybackPulse ? 'bg-neutral-900' : 'animate-pulse bg-neutral-700/30 [animation-duration:6s] [animation-timing-function:ease-in-out] motion-reduce:animate-none'" />
     </div>
     <div class="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
       <slot name="heading" />
@@ -104,7 +108,9 @@ const lanes = computed(() => speakers.value.map((speaker, index) => ({
           <span data-testid="timeline-position-marker" aria-hidden="true" class="pointer-events-none absolute top-0 z-20 size-4 -translate-x-1/2 rounded-full bg-fb-primary" :style="{ left: progress }" />
         </div>
         <div class="relative space-y-1.5">
-          <div v-for="lane in lanes" :key="lane.speaker" role="group" :style="speakerColor(lane.speaker, speakers)" :aria-label="`${labels.get(lane.speaker) ?? `Speaker ${lane.speakerNumber}`} timeline`">
+          <!-- The clock changes every frame; turn controls only change with
+               transcript data, names, availability or an active-turn boundary. -->
+          <div v-for="lane in lanes" :key="lane.speaker" v-memo="[lane, labels, speakers, active, audioAvailable]" role="group" :style="speakerColor(lane.speaker, speakers)" :aria-label="`${labels.get(lane.speaker) ?? `Speaker ${lane.speakerNumber}`} timeline`">
             <div class="relative h-5 overflow-hidden rounded bg-fb-surface-muted/50 [mask-image:linear-gradient(to_right,transparent,black_8px,black_calc(100%_-_8px),transparent)]" @click="seekAt">
               <TimelineTurnTooltip v-for="turn in lane.turns" :key="turn.index" class="absolute inset-y-0 min-w-px" :style="{ left: turn.left, width: turn.width }" :title="`${labels.get(lane.speaker) ?? `Speaker ${lane.speakerNumber}`} · ${timestamp(turn.start)}–${timestamp(turn.end)}`" :content="turn.content" :turn-index="turn.index" :turns="turns" :speakers="speakers" :active="active">
                 <button type="button" class="h-full w-full cursor-pointer rounded border border-(--speaker-border) bg-(--speaker-fill) hover:bg-(--speaker-border) focus-visible:outline-2 focus-visible:outline-(--speaker-color)" :aria-label="`Seek to ${labels.get(lane.speaker) ?? `Speaker ${lane.speakerNumber}`}, ${timestamp(turn.start)} to ${timestamp(turn.end)}`" @click.stop="emit('seek', turn.start)" />

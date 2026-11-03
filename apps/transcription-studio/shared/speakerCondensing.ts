@@ -65,15 +65,18 @@ export function condensedOwners(segments: readonly Segment[], turns: Turns, inpu
       })) target = left
     }
     if (target) {
-      // At a change boundary, a two-speaker tie can use two independent votes:
-      // the original segment label and its adjacent owned word. A third speaker,
-      // missing source label, or disagreement still leaves the fragment explicit.
+      // Two-speaker ties need source-label and adjacent-word agreement. Inside
+      // a continuing sentence require BOTH neighbours in that source segment:
+      // same-speaker proximity alone must not erase an overlapping interjection.
+      // A third speaker or missing source label still leaves ambiguity explicit.
       const competing = !current && run.some(({ word }) => turns.some(turn => turn.speaker !== target
         && Math.min(word.end, turn.end) > Math.max(word.start, turn.start)))
-      const supportedTie = !current && left !== right && run.every(({ word, segment }) => {
+      const supportedTie = !current && run.every(({ word, segment }) => {
         const evidence = new Set(turns.filter(turn => Math.min(word.end, turn.end) > Math.max(word.start, turn.start)).map(turn => turn.speaker))
         return segment.speaker === target && evidence.has(target!) && evidence.size === 2
-          && [...evidence].every(value => value === left || value === right)
+          && (left === right
+            ? before.segment === segment && after.segment === segment && left === target
+            : [...evidence].every(value => value === left || value === right))
           && ((before.segment === segment && left === target) || (after.segment === segment && right === target))
       })
       if (!competing || supportedTie) {
