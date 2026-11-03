@@ -3,7 +3,6 @@ import { constants } from 'node:fs'
 import { extname, join } from 'node:path'
 import type { Readable } from 'node:stream'
 import type { LocationSettings, TranscriptionJob, WorkspacePreferences, WorkspaceSnapshot } from '../../shared/workspace'
-import { normaliseSpeakerNames } from '../../shared/speakerNames'
 import { adapterConfiguration } from '../backends/registry'
 import { acquireRunLock } from '../runs/store'
 import { executeJob } from './execute'
@@ -96,11 +95,7 @@ export async function updatePreferences(input: WorkspacePreferences): Promise<Wo
 }
 
 export async function updateSpeakerNames(id: string, input: Record<string, string>): Promise<Record<string, string>> {
-  const record = await store.job(id)
-  if (!record.detail.result) throw new Error('Transcript is not available')
-  record.detail.speakerNames = normaliseSpeakerNames(record.detail.result, input)
-  await store.saveJob(record)
-  return record.detail.speakerNames
+  return store.updateSpeakerNames(id, input)
 }
 
 export async function startTranscription(name: unknown, upload?: Readable): Promise<TranscriptionJob> {

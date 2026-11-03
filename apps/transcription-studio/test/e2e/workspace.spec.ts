@@ -100,6 +100,22 @@ test('upload starts only on Transcribe, polls metadata, refreshes terminal detai
   expect(errors).toEqual([])
 })
 
+test('settings tabs preserve folder edits and support keyboard navigation', async ({ page }) => {
+  await mockWorkspace(page, fixture())
+  await page.goto('/settings')
+  const folders = page.getByRole('tab', { name: 'Folders', exact: true })
+  const clipboard = page.getByRole('tab', { name: 'Clipboard', exact: true })
+  await page.getByLabel('Working directory', { exact: true }).fill('/synthetic/unsaved')
+  await clipboard.click()
+  await expect(page.getByText('Copy with Speaker Labels', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Working directory', { exact: true })).not.toBeVisible()
+  await clipboard.focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(folders).toBeFocused()
+  await expect(folders).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByLabel('Working directory', { exact: true })).toHaveValue('/synthetic/unsaved')
+})
+
 test('speaker rename updates passages, timeline and clipboard and survives reload', async ({ page }) => {
   const snapshot = fixture()
   snapshot.jobs = [completed]

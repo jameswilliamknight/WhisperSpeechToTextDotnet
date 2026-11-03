@@ -16,9 +16,9 @@ useHead({ title: 'Transcription Studio', htmlAttrs: { class: 'dark', lang: 'en-N
     <header class="shrink-0 border-b border-fb-border bg-fb-surface-muted/20">
       <div class="mx-auto flex max-w-screen-2xl items-center justify-between px-8 py-5">
         <span class="text-lg font-semibold tracking-tight">Transcription Studio</span>
-        <nav aria-label="Main navigation" class="flex gap-6 text-sm">
-          <NuxtLink to="/" class="rounded text-fb-muted hover:text-fb-foreground focus-visible:outline-2 focus-visible:outline-fb-primary" active-class="!text-fb-primary" exact-active-class="font-semibold">Transcribe</NuxtLink>
-          <NuxtLink to="/settings" class="rounded text-fb-muted hover:text-fb-foreground focus-visible:outline-2 focus-visible:outline-fb-primary" active-class="!text-fb-primary">Settings</NuxtLink>
+        <nav aria-label="Main navigation" class="-my-5 flex self-stretch gap-6 text-sm font-medium">
+          <NuxtLink to="/" class="flex items-center border-b-2 border-transparent py-5 text-fb-muted hover:text-fb-foreground focus-visible:outline-2 focus-visible:outline-fb-primary" exact-active-class="!border-fb-primary !text-fb-primary">Transcribe</NuxtLink>
+          <NuxtLink to="/settings" class="flex items-center border-b-2 border-transparent py-5 text-fb-muted hover:text-fb-foreground focus-visible:outline-2 focus-visible:outline-fb-primary" exact-active-class="!border-fb-primary !text-fb-primary">Settings</NuxtLink>
         </nav>
       </div>
     </header>

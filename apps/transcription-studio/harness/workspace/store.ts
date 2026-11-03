@@ -5,6 +5,8 @@ import type { LocationSettings, TranscriptionDetail, WorkspacePreferences } from
 import type { Fingerprint } from '../source/integrity'
 import { privateDirectory, privateRoot } from '../paths'
 import { defaults } from './locations'
+import { ensureSpeakerMetadata, metadataPath, readSpeakerMetadata, refreshSpeakerExport, validateSpeakerExport, writeSpeakerMetadata } from './metadata'
+import { normaliseSpeakerNames } from '../../shared/speakerNames'
 
 export interface JobRecord {
   detail: TranscriptionDetail
@@ -61,23 +63,54 @@ export const settings = () => readState('settings', defaults)
 export const preferences = () => readState('preferences', preferenceDefaults)
 export const saveSettings = (value: LocationSettings) => writeState('settings', value)
 export const savePreferences = (value: WorkspacePreferences) => writeState('preferences', value)
+
+function persist(db: Database, record: JobRecord): void {
+  db.query('INSERT OR REPLACE INTO jobs (id,value) VALUES (?,?)').run(record.detail.id, JSON.stringify(record))
+}
+
+/** A failed migration keeps the original database mapping; corrupt sidecars are never treated as absent. */
+function hydrate(db: Database, record: JobRecord): JobRecord {
+  if (!record.detail.result || (record.detail.status !== 'succeeded' && record.detail.speakerNames === undefined)) return record
+  try {
+    const names = ensureSpeakerMetadata(record)
+    if (record.detail.speakerNames !== undefined) {
+      delete record.detail.speakerNames
+      persist(db, record)
+    }
+    return { ...record, detail: { ...record.detail, speakerNames: names } }
+  }
+  catch (error) {
+    if (record.detail.speakerNames !== undefined) return record
+    throw error
+  }
+}
+
 export async function saveJob(record: JobRecord): Promise<void> {
   await use(db => db.transaction(() => {
     const existing = db.query<{ value: string }, [string]>('SELECT value FROM jobs WHERE id = ?').get(record.detail.id)
-    if (existing && (JSON.parse(existing.value) as JobRecord).cancelRequested) record.cancelRequested = true
-    db.query('INSERT OR REPLACE INTO jobs (id,value) VALUES (?,?)').run(record.detail.id, JSON.stringify(record))
+    const saved = existing ? JSON.parse(existing.value) as JobRecord : undefined
+    if (saved?.cancelRequested) record.cancelRequested = true
+    // Worker snapshots are never a source of names. Only unmigrated database values may survive a save.
+    const next = { ...record, detail: { ...record.detail } }
+    delete next.detail.speakerNames
+    if (saved?.detail.speakerNames !== undefined) {
+      hydrate(db, saved)
+      const latest = JSON.parse(db.query<{ value: string }, [string]>('SELECT value FROM jobs WHERE id = ?').get(record.detail.id)!.value) as JobRecord
+      if (latest.detail.speakerNames !== undefined) next.detail.speakerNames = latest.detail.speakerNames
+    }
+    persist(db, next)
   }).immediate())
 }
 export async function job(id: string): Promise<JobRecord> {
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id)) throw new Error('Invalid transcription identifier')
-  return use(db => {
+  return use(db => db.transaction(() => {
     const row = db.query<{ value: string }, [string]>('SELECT value FROM jobs WHERE id = ?').get(id)
     if (!row) throw new Error('Transcription not found')
-    return JSON.parse(row.value) as JobRecord
-  })
+    return hydrate(db, JSON.parse(row.value) as JobRecord)
+  }).immediate())
 }
 export async function jobs(): Promise<JobRecord[]> {
-  return use(db => db.query<{ value: string }, []>('SELECT value FROM jobs').all().map(row => JSON.parse(row.value) as JobRecord).sort((a, b) => b.detail.startedAt.localeCompare(a.detail.startedAt)))
+  return use(db => db.transaction(() => db.query<{ value: string }, []>('SELECT value FROM jobs').all().map(row => hydrate(db, JSON.parse(row.value) as JobRecord)).sort((a, b) => b.detail.startedAt.localeCompare(a.detail.startedAt))).immediate())
 }
 /** Completion and cancellation share one SQLite linearization point, not an event-loop timing window. */
 export async function commitSucceeded(record: JobRecord, signal: AbortSignal): Promise<boolean> {
@@ -86,8 +119,54 @@ export async function commitSucceeded(record: JobRecord, signal: AbortSignal): P
     if (!row) throw new Error('Transcription not found')
     const saved = JSON.parse(row.value) as JobRecord
     if (signal.aborted || saved.cancelRequested) return false
-    db.query('UPDATE jobs SET value = ? WHERE id = ?').run(JSON.stringify(record), record.detail.id)
+    const next = { ...record, detail: { ...record.detail } }
+    delete next.detail.speakerNames
+    if (saved.detail.speakerNames !== undefined) next.detail.speakerNames = saved.detail.speakerNames
+    const names = ensureSpeakerMetadata(next)
+    delete next.detail.speakerNames
+    persist(db, next)
+    record.detail.speakerNames = names
     return true
+  }).immediate())
+}
+
+export async function updateSpeakerNames(id: string, input: Record<string, string>): Promise<Record<string, string>> {
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id)) throw new Error('Invalid transcription identifier')
+  return use(db => db.transaction(() => {
+    const row = db.query<{ value: string }, [string]>('SELECT value FROM jobs WHERE id = ?').get(id)
+    if (!row) throw new Error('Transcription not found')
+    const record = JSON.parse(row.value) as JobRecord
+    if (!record.detail.result || record.detail.status === 'running') throw new Error('Transcript is not available')
+    const names = normaliseSpeakerNames(record.detail.result, input)
+    // Validate existing metadata before replacement. A damaged or redirected sidecar requires repair, not reset.
+    readSpeakerMetadata(record)
+    validateSpeakerExport(record)
+    writeSpeakerMetadata(record, names)
+    refreshSpeakerExport(record, names)
+    delete record.detail.speakerNames
+    persist(db, record)
+    return names
+  }).immediate())
+}
+
+/** Explicit maintenance entry point reports only identifiers/paths, never names or transcript text. */
+export async function migrateSpeakerMetadata() {
+  return use(db => db.transaction(() => {
+    const report = { migrated: 0, checked: 0, paths: [] as string[], failed: [] as string[] }
+    for (const row of db.query<{ value: string }, []>('SELECT value FROM jobs').all()) {
+      const record = JSON.parse(row.value) as JobRecord
+      if (!record.detail.result || (record.detail.status !== 'succeeded' && record.detail.speakerNames === undefined)) continue
+      report.checked++
+      try {
+        ensureSpeakerMetadata(record)
+        if (record.detail.speakerNames !== undefined) report.migrated++
+        delete record.detail.speakerNames
+        persist(db, record)
+        report.paths.push(metadataPath(record))
+      }
+      catch { report.failed.push(record.detail.id) }
+    }
+    return report
   }).immediate())
 }
 

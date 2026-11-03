@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import LocationSettingsForm from '../components/transcription/LocationSettingsForm.vue'
+import SettingsView from '../components/transcription/SettingsView.vue'
 </script>
 
 <template>
-  <LocationSettingsForm />
+  <SettingsView />
 </template>
